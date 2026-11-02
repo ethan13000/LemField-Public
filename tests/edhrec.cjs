@@ -1,0 +1,66 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+const root=path.resolve(__dirname,'..');
+const fixture={container:{json_dict:{card:{name:'Test Commander',label:'50,000 decks · Rank #1,234'},cardlists:[
+ {tag:'topcards',header:'Top Cards',cardviews:[{name:'Third',lift:2,num_decks:20,potential_decks:100},{name:'First',lift:8,num_decks:80,potential_decks:100,image_uris:[{normal:'https://cards.scryfall.io/normal/first.jpg'}]},{name:'Missing',synergy:0.9},{name:'Second',lift:4,num_decks:40,potential_decks:100},{name:'Fourth',lift:1},{name:'Bad',lift:'oops'},{name:'Unsafe',lift:99,url:'https://example.com/cards/bad'}]},
+ {tag:'creatures',cardviews:[{name:'First',lift:8}]},
+ {tag:'topcommanders',cardviews:[{name:'Not a recommendation',lift:100,url:'/commanders/other'}]}
+ ]}},panels:{links:[{header:'Popular Tags',items:[{value:'Counters',href:'/commanders/test/counters'},{value:'Unsafe',href:'javascript:alert(1)'}]}]}};
+(async()=>{
+ const listeners=[],ctx={URL,AbortController,setTimeout,clearTimeout,browser:{runtime:{onMessage:{addListener:f=>listeners.push(f)}}}};
+ vm.createContext(ctx);vm.runInContext(fs.readFileSync(path.join(root,'edhrec-data.js'),'utf8'),ctx);
+ const E=ctx.MoxEDHREC,normalized=E.normalize(fixture,'commanders','test');
+ assert.equal(E.slug("Atraxa, Praetors' Voice"),'atraxa-praetors-voice');
+ assert.equal(E.slug('Éowyn, Shieldmaiden // Back Face'),'eowyn-shieldmaiden');
+ assert.equal(normalized.rank,1234);assert.equal(normalized.tags.length,1);
+ assert.equal(normalized.cards.map(c=>c.name).join(','),'First,Second,Third,Fourth');
+ assert.equal(normalized.popularCommanders[0].name,'Not a recommendation');
+ assert.equal(normalized.allCards.some(card=>card.name==='Not a recommendation'),false);
+ assert.equal(normalized.allCards.find(card=>card.name==='Missing').synergy,90);
+ const relatedFixture=structuredClone(fixture);
+ relatedFixture.container.json_dict.cardlists[2].cardviews.push({name:'Example Commander',url:'/commanders/example-commander',num_decks:25,potential_decks:100,synergy:0.2},{name:'Unsafe Commander',url:'https://evil.example/commanders/no'});
+ const related=E.normalize(relatedFixture,'cards','example').popularCommanders;
+ assert.equal(related.length,2);assert.equal(related[1].inclusion,25);assert.equal(related[1].synergy,20);
+ assert.equal(E.browse(normalized)[0].name,'First');
+ assert.equal(E.browse(normalized,{category:'lift'}).map(c=>c.name).join(','),'First,Second,Third,Fourth');
+ assert.equal(E.browse(normalized,{category:'creatures'}).length,1);
+ assert.equal(E.browse(normalized,{category:'all',query:'missing'}).length,1);
+ assert.equal(E.commanderInclusion(normalized,'First').inclusion,80);
+ assert.equal(E.commanderInclusion(normalized,'First').potentialDecks,100);
+ assert.equal(E.commanderInclusion(normalized,'Unlisted'),null);
+ assert.equal(normalized.allCards.find(c=>c.name==='Missing').lift,null);
+ assert.match(normalized.allCards.find(c=>c.name==='First').image,/scryfall/);
+ assert.equal(E.imageURL('https://untrusted.example/card.jpg'),null);
+ assert.equal(E.similar({similar_cards:[{name:'Similar Card'},{name:'Bad',url:'javascript:alert(1)'}]}).length,1);
+ const li={textContent:'3 Lift',querySelectorAll:()=>[anchor],querySelector:()=>null},anchor={textContent:'X',closest:()=>li,getAttribute:()=>'/cards/x'};
+ ctx.DOMParser=class{parseFromString(){return {body:{textContent:''},querySelectorAll:selector=>selector==='a[href^="/cards/"]'?[anchor]:[]}}};
+ const supplemented=E.supplementHTML({kind:'cards',tags:[],cards:[],allCards:[{key:'x',name:'X',inclusion:40,numDecks:40,potentialDecks:100,lift:null}]},'');
+ assert.equal(supplemented.allCards[0].inclusion,40);assert.equal(supplemented.allCards[0].numDecks,40);assert.equal(supplemented.allCards[0].lift,3);
+ assert.equal(E.normalize(fixture,'cards','test').rank,null);
+ assert.throws(()=>E.normalize({},'cards','test'));
+ ctx.DOMParser=class{parseFromString(){return {body:{textContent:''},querySelectorAll:()=>[]}}};
+ let calls=[],release;
+ const guard=setTimeout(()=>{console.error('EDHREC suite did not complete');process.exit(1);},5000);
+ ctx.fetch=url=>{calls.push(url);return url.endsWith('.json')?new Promise(r=>release=r):Promise.resolve({ok:false,status:404})};
+ vm.runInContext(fs.readFileSync(path.join(root,'background.js'),'utf8'),ctx);
+ const read=listeners.find(f=>f.toString().includes("mrd-read-edhrec")),a=read({type:'mrd-read-edhrec',slug:'test'}),b=read({type:'mrd-read-edhrec',slug:'test'});
+ assert.equal(a,b);assert.equal(calls.length,1);release({ok:true,json:async()=>fixture});assert.equal((await a).ok,true);
+ assert.equal((await read({type:'mrd-read-edhrec',slug:'test'})).ok,true);assert.equal(calls.length,2);
+ assert.equal(read({type:'mrd-read-edhrec',slug:'../escape'}),undefined);
+ assert.equal(read({type:'mrd-read-edhrec',slug:'https://example.com'}),undefined);
+ ctx.fetch=async url=>{calls.push(url);return {status:403,ok:false}};
+ const denied=await read({type:'mrd-read-edhrec',slug:'denied'});assert.equal(denied.ok,false);assert.equal(denied.code,'blocked');
+ let count=0;ctx.fetch=async()=>{count++;return count===1?{status:404,ok:false}:{ok:true,json:async()=>fixture}};
+ assert.equal((await read({type:'mrd-read-edhrec',slug:'ordinary-card'})).data.kind,'cards');assert.equal(count,3);
+ const htmlLink={textContent:'Fallback Card',getAttribute:()=>'/cards/fallback-card',closest:()=>htmlItem};
+ const htmlItem={textContent:'42% Inclusion 1.2K Decks',querySelectorAll:()=>[htmlLink],querySelector:()=>null};
+ ctx.DOMParser=class{parseFromString(){return {body:{textContent:''},querySelectorAll:selector=>selector==='a[href^="/cards/"]'?[htmlLink]:[]}}};
+ const fallbackCalls=[];ctx.fetch=async url=>{fallbackCalls.push(url);return url.endsWith('.json')?{ok:false,status:404}:{ok:true,text:async()=>'<rendered EDHREC page>'}};
+ const htmlFallback=await read({type:'mrd-read-edhrec',slug:'html-only',kind:'cards'});
+ assert.equal(htmlFallback.ok,true);assert.equal(htmlFallback.data.source,'html');
+ assert.equal(htmlFallback.data.allCards[0].inclusion,42);assert.equal(htmlFallback.data.allCards[0].numDecks,1200);assert.equal(htmlFallback.data.allCards[0].lift,null);assert.equal(htmlFallback.data.cards.length,0);
+ assert.equal(fallbackCalls.length,3);assert.equal(fallbackCalls[2],'https://edhrec.com/cards/html-only');
+ ctx.DOMParser=class{parseFromString(){return {body:{textContent:''},querySelectorAll:()=>[]}}};
+ assert.equal((await read({type:'mrd-read-edhrec',slug:'no-stats'})).ok,false);
+ clearTimeout(guard);
+ console.log('PASS: EDHREC lift sorting/deduplication, synergy exclusion, rank/tags, URL validation, slugging, cache/coalescing, forbidden response, ordinary-card fallback.');
+})().catch(e=>{console.error(e);process.exitCode=1});

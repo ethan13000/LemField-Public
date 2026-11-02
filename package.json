@@ -1,0 +1,15 @@
+{
+  "name": "lemfield",
+  "version": "1.10.59",
+  "private": true,
+  "scripts": {
+    "test": "node tests/dom.cjs && node tests/network.cjs && npm run test:data && node tests/edhrec-dom.cjs",
+    "test:data": "node tests/edhrec.cjs && node tests/deck-bridge.cjs && node tests/deck-client.cjs && node tests/printing-integration.cjs && node tests/dialog-lifetime.cjs && node tests/art.cjs && node tests/lands.cjs && node tests/features.cjs && node tests/sidebar.cjs && node tests/deck-visibility.cjs && node tests/card-search.cjs && node tests/printing-shortcuts.cjs && node tests/edhrec-fallbacks.cjs && node tests/edhrec-preview.cjs && node tests/security.cjs && node tests/art-render.cjs && node tests/alpha4.cjs && node tests/chromium.cjs",
+    "test:browser": "node tests/regression.cjs && node tests/browser-fixture-runner.cjs",
+    "package": "python3 scripts/package.py"
+  },
+  "devDependencies": {
+    "jsdom": "26.1.0",
+    "playwright": "1.62.1"
+  }
+}

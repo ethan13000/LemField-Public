@@ -1,0 +1,12 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const source=fs.readFileSync(require.resolve('../edhrec.js'),'utf8');
+const context={C:{printingTags:printing=>printing.tags}};
+vm.createContext(context);vm.runInContext(source.slice(source.indexOf('function printingTagOrder('),source.indexOf('function browsePrintings(')),context);
+const rows=[{tags:['Promo','Foil','Foil']},{tags:['Foil','Full art']},{tags:['Foil','Promo']},{tags:['Full art','Borderless']}];
+const result=mode=>JSON.parse(JSON.stringify(context.printingTagOrder(rows,mode)));
+assert.deepEqual(result(false),[['Borderless',1],['Foil',3],['Full art',2],['Promo',2]]);
+assert.deepEqual(result(true),[['Foil',3],['Full art',2],['Promo',2],['Borderless',1]]);
+rows.push({tags:['Borderless']},{tags:['Borderless']},{tags:['Borderless']});
+assert.equal(result(true)[0][0],'Borderless','Loading more printings changes frequency ordering');
+assert.deepEqual(JSON.parse(JSON.stringify(context.printingTagOrder([],true))),[]);
+console.log('PASS: alphabetical/frequency tag sorting, one occurrence per printing, alphabetical ties, empty data and counts after loading more.');

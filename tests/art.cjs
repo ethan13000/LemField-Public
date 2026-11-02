@@ -1,0 +1,21 @@
+const assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs'),path=require('node:path');
+const root=path.resolve(__dirname,'..');
+(async()=>{
+ let listener,calls=[];
+ const ctx={URL,AbortController,setTimeout,clearTimeout,browser:{runtime:{onMessage:{addListener:f=>listener=f}}},fetch:async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>({card_faces:[{image_uris:{normal:'https://cards.scryfall.io/normal/front/test.jpg'}}]})}}};
+ vm.createContext(ctx);vm.runInContext(fs.readFileSync(path.join(root,'edhrec-data.js'),'utf8'),ctx);vm.runInContext(fs.readFileSync(path.join(root,'card-search.js'),'utf8'),ctx);vm.runInContext(fs.readFileSync(path.join(root,'art-background.js'),'utf8'),ctx);
+ const first=listener({type:'mrd-card-art',name:'Sol Ring'}),second=listener({type:'mrd-card-art',name:'Sol Ring'});assert.equal(first,second);
+ const result=await first;assert.equal(result.ok,true);assert.match(result.url,/cards.scryfall.io/);assert.equal(calls.length,1);
+ await listener({type:'mrd-card-art',name:'Sol Ring'});assert.equal(calls.length,1);assert.equal(calls[0].options.credentials,'omit');assert.equal(new URL(calls[0].url).searchParams.get('exact'),'Sol Ring');
+ assert.equal(listener({type:'mrd-card-art',name:''}),undefined);
+ assert.equal(listener({type:'mrd-card-art',name:'Sol Ring',printingId:'../named'}),undefined);
+ const printingId='12345678-1234-1234-1234-123456789abc';
+ await listener({type:'mrd-card-art',name:'Sol Ring',printingId});assert.equal(new URL(calls.at(-1).url).pathname,'/cards/'+printingId,'Printing art lookup preserves exact edition');
+ await listener({type:'mrd-card-art',name:'Sol Ring',printing:{set:'sld',collectorNumber:'123'}});assert.equal(new URL(calls.at(-1).url).pathname,'/cards/sld/123','Moxfield edition recovers art by set and collector number');
+ const E=ctx.MoxEDHREC;
+ assert.equal(E.imageURLs({image_uris:{large:'https://cards.scryfall.io/large/test.jpg'}}).length,1);
+ assert.equal(E.imageURLs({card_faces:[{image_uris:{png:'https://cards.scryfall.io/png/test.png'}}]}).length,1);
+ assert.equal(E.imageURLs({image_uris:[{small:'https://cards.scryfall.io/small/test.jpg'}]}).length,1);
+ assert.equal(E.imageURLs({image_uris:{normal:'javascript:bad',large:'https://evil.invalid/art.jpg'}}).length,0);
+ console.log('PASS: cached/coalesced card art, front-face fallback, fixed Scryfall endpoint and credential-free requests.');
+})().catch(error=>{console.error(error);process.exitCode=1});

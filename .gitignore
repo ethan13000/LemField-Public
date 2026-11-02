@@ -1,0 +1,8 @@
+node_modules
+.playwright/
+.test-results/
+test-results/
+playwright-report/
+tests/*-test.png
+*.har
+*.log
