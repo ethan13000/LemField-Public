@@ -1,0 +1,42 @@
+name: Publish Alpha 7
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/release-alpha7.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish prerelease and upload browser builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir assets
+          for name in LemField-Alpha-7-Firefox.zip LemField-Alpha-7-Chromium.zip ALPHA7_SHA256SUMS.txt; do
+            gh api "repos/$GH_REPO/contents/downloads/$name?ref=$RELEASE_COMMIT" --jq .content | base64 --decode > "assets/$name"
+          done
+          (cd assets && sha256sum --check ALPHA7_SHA256SUMS.txt)
+          cat > notes.md <<'NOTES'
+          Alpha 7 (1.10.60), unsigned Firefox and Chromium test builds.
+
+          Major changes:
+          - Expanded Card Explorer searches and triggers, persistent toolbar access, clearer in-deck states and faster hover previews.
+          - Improved token variants, printing selection and exact-edition previews.
+          - Direct PDF export, token quantities and print-settings sync/JSON transfer.
+          - Card counts on Your Decks and reliability improvements.
+
+          Extract the appropriate ZIP and follow INSTALL.md. Firefox uses Load Temporary Add-on; Chromium uses Load unpacked.
+
+          Validation: 43 dependency-free scripts and runtime syntax checks passed. Live native token updates, browser sync and browser rendering remain unverified. Native token edition updates are experimental; test on a test deck. See README.md for limitations.
+          NOTES
+          if gh release view alpha-7 >/dev/null 2>&1; then
+            gh release upload alpha-7 assets/* --clobber
+          else
+            gh release create alpha-7 assets/* --target "$RELEASE_COMMIT" --title "LemField Alpha 7" --prerelease --notes-file notes.md
+          fi

@@ -19,7 +19,7 @@ function zipPackage(plan){
 const root=path.resolve(__dirname,'..'),out=path.dirname(root),readJSON=file=>JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,'')),manifest=readJSON(path.join(root,'manifest.json'));
 assert.equal(manifest.version,'1.10.60');assert.equal(readJSON(path.join(root,'package.json')).version,manifest.version);assert.equal(readJSON(path.join(root,'package-lock.json')).version,manifest.version);
 const chromeOnly=new Set(['service-worker.js','offscreen-client.js','offscreen.html','offscreen-parser.js']);
-const docs=['README.md','INSTALL.md','SECURITY_REVIEW.md','VALIDATION.md','ALPHA7_RELEASE_REVIEW.md'];
+const docs=['README.md','INSTALL.md'];
 const runtime=fs.readdirSync(root).filter(name=>/\.(?:js|css|html)$/.test(name)).sort();
 const hash=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'),plan=[];
 for(const target of ['Firefox','Chromium']){
@@ -40,5 +40,5 @@ for(const target of ['Firefox','Chromium']){
 const reviewDir=path.join(root,'.tmp','alpha7-review');fs.mkdirSync(reviewDir,{recursive:true});const planFile=path.join(reviewDir,'package-plan.json');fs.writeFileSync(planFile,JSON.stringify(plan,null,2));
 for(const item of plan)zipPackage(item);
 const sums=plan.map(item=>hash(item.zip)+'  '+path.basename(item.zip)).join('\n')+'\n';fs.writeFileSync(path.join(out,'ALPHA7_SHA256SUMS.txt'),sums);
-for(const name of ['ALPHA7_RELEASE_REVIEW.md','ALPHA7_DISCORD_MESSAGE.md'])fs.copyFileSync(path.join(root,name),path.join(out,name));
+
 console.log(sums.trim());

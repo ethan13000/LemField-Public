@@ -2,7 +2,7 @@
 
 ## Upgrade
 
-Export settings and print preferences as a backup first. Keep your current extension installed; uninstalling may clear local artwork and settings. Replace files in the folder you already load, then reload the extension and refresh Moxfield tabs. Alpha 7 keeps the Firefox extension ID unchanged. The active development/testing folder on the author's workstation is moxfield-requirements; packaged copies are separate builds.
+Export settings and print preferences as a backup first. Keep your current extension installed; uninstalling may clear local artwork and settings. Replace files in the folder you already load, then reload the extension and refresh Moxfield tabs. Alpha 7 keeps the Firefox extension ID unchanged.
 
 ## Firefox
 
@@ -29,4 +29,4 @@ The Chromium manifest requires Chromium 120 or later and includes the offscreen 
 - Test native token edition updates on a test deck; read-back verification is required before the extension reports success.
 - Open the extension menu to prepare print sheets, export a PDF, or transfer print settings.
 
-Browser account sync, live Moxfield writes and current native UI compatibility have not been verified in the release environment. See the review report for exact limits.
+Browser account sync, live Moxfield writes and current native UI compatibility have not been verified in the release environment. See README.md for validation limits.
