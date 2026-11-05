@@ -1,0 +1,40 @@
+const assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
+const root=path.resolve(__dirname,'..');
+(async()=>{
+ const handlers={},storage={},location={pathname:'/decks/first',origin:'https://moxfield.com'},document={querySelector:()=>({textContent:'First deck'})};let holdPreview=false,previewMessages=[],lastAdd,runtimeListener;
+ const window={addEventListener:(type,fn)=>handlers[type]=fn,postMessage:message=>{
+  if(message.source==='mrd-deck-bridge-ping-v1')queueMicrotask(()=>handlers.message({source:window,origin:location.origin,data:{source:'mrd-deck-bridge-ready-v1',version:6}}));
+  if(holdPreview&&message.action==='preview'){previewMessages.push(message);return;}
+  if(message.action==='add')lastAdd=message;
+  if(message.source==='mrd-deck-command-v1')queueMicrotask(()=>handlers.message({source:window,origin:location.origin,data:{source:'mrd-deck-result-v1',requestId:message.requestId,ok:true,data:message.action==='preview'?{deck:{name:'Preview',boards:{mainboard:{cards:[{quantity:30,card:{name:'Forest',type_line:'Basic Land'}}]},maybeboard:{cards:[{quantity:10,card:{name:'Other'}}]}}}}:{decks:[]}}}));
+ }};
+ window.dispatchEvent=()=>{};
+ const ctx={browser:{runtime:{onMessage:{addListener:fn=>{runtimeListener=fn;}}}},window,document,location,crypto,setTimeout,clearTimeout,CustomEvent:class{constructor(type){this.type=type}},sessionStorage:{getItem:key=>storage[key]||null,setItem:(key,value)=>storage[key]=value}};
+ vm.createContext(ctx);vm.runInContext(fs.readFileSync(path.join(root,'rules.js'),'utf8'),ctx);vm.runInContext(fs.readFileSync(path.join(root,'edhrec-data.js'),'utf8'),ctx);vm.runInContext(fs.readFileSync(path.join(root,'deck-client.js'),'utf8'),ctx);
+ assert.equal(runtimeListener({type:'snapshot'}),undefined,'Unrelated extension messages must remain unclaimed');assert.equal((await ctx.MoxDecks.current()).id,'first');assert.equal(await ctx.MoxDecks.commander(),null);
+ await ctx.MoxDecks.add({name:'Sol Ring',id:'printing-id',set:'sld',collectorNumber:'123'},'other','sideboard');
+ assert.equal(lastAdd.printing.scryfallId,'printing-id');assert.equal(lastAdd.printing.set,'sld');assert.equal(lastAdd.printing.collectorNumber,'123');assert.equal(lastAdd.board,'sideboard');
+ await ctx.MoxDecks.add({name:'Sol Ring'},'other');assert.equal(lastAdd.printing,undefined,'Ordinary additions retain preferred printing');
+ const send=data=>handlers.message({source:window,origin:location.origin,data});
+ send({source:'mrd-deck-response-v2',id:'first',deck:{name:'Partner deck',boards:{commanders:{cards:{one:{card:{name:'Tymna the Weaver'}},two:{card:{name:'Kraum, Ludevic’s Opus'}}}}}}});
+ let commander=await ctx.MoxDecks.commander();assert.equal(commander.names.length,2);assert.equal(commander.slug,'tymna-the-weaver-kraum-ludevics-opus');
+ assert.equal((await ctx.MoxDecks.preview()).activeCount,2);
+ const fresh={name:'Partner deck',version:10,boards:{commanders:{cards:{one:{card:{name:'Tymna the Weaver'}},two:{card:{name:'Kraum, Ludevic?s Opus'}}}}}};send({source:'mrd-deck-response-v2',id:'first',deck:fresh});send({source:'mrd-deck-response-v2',id:'first',deck:{version:9,boards:{commanders:{cards:[{card:{name:'Stale Commander'}}]}}}});assert.equal((await ctx.MoxDecks.commander()).names[0],'Tymna the Weaver');
+ location.pathname='/cards/test';send({source:'mrd-route-v3'});commander=await ctx.MoxDecks.commander();assert.equal(commander.deckName,'Partner deck');assert.equal((await ctx.MoxDecks.current()).id,'first');
+ assert.equal((await ctx.MoxDecks.list()).decks.length,0);
+ assert.equal((await ctx.MoxDecks.preview()).activeCount,30);
+ holdPreview=true;
+ const oldPreview=ctx.MoxDecks.preview(true);await new Promise(resolve=>setTimeout(resolve,0));
+ await ctx.MoxDecks.add({name:'Forest'},'first');
+ const newPreview=ctx.MoxDecks.preview();await new Promise(resolve=>setTimeout(resolve,0));assert.equal(previewMessages.length,2);
+ const replyPreview=(message,count)=>send({source:'mrd-deck-result-v1',requestId:message.requestId,ok:true,data:{deck:{boards:{mainboard:{cards:[{quantity:count,card:{name:'Forest',type_line:'Basic Land'}}]}}}}});
+ replyPreview(previewMessages[0],10);replyPreview(previewMessages[1],40);
+ assert.equal((await newPreview).activeCount,40);assert.equal((await oldPreview).activeCount,40);assert.equal((await ctx.MoxDecks.preview()).activeCount,40);
+ location.pathname='/decks/second';send({source:'mrd-route-v3'});assert.equal(await ctx.MoxDecks.commander(),null);assert.equal((await ctx.MoxDecks.current()).id,'second');
+ const staleSent=[],staleWindow={addEventListener:()=>{},postMessage:message=>staleSent.push(message)};
+ const staleCtx={window:staleWindow,browser:ctx.browser,location,crypto,sessionStorage:ctx.sessionStorage,CustomEvent:ctx.CustomEvent,clearTimeout,setTimeout:(fn,ms)=>setTimeout(fn,ms===3000?5:ms)};
+ vm.createContext(staleCtx);vm.runInContext(fs.readFileSync(path.join(root,'deck-client.js'),'utf8'),staleCtx);
+ await assert.rejects(staleCtx.MoxDecks.changePrinting({name:'Sol Ring'},{set:'sld',collectorNumber:'123'}),/older or disconnected extension bridge/);
+ assert.equal(staleSent.filter(message=>message.source==='mrd-deck-command-v1').length,0,'An outdated bridge must never receive a printing mutation');
+ console.log('PASS: current deck per tab, partner commander context, request/reply matching, stale commander clearing, and outdated bridge rejection before a printing write.');
+})().catch(error=>{console.error(error);process.exitCode=1});

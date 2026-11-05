@@ -1,0 +1,42 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+require('../rules.js');const R=global.MoxRules;
+const card=R.normalizeCard({name:'Test Rock',type_line:'Artifact',oracle_text:'{T}: Add {C}{C}.'});
+assert.equal(R.landsFallback(R.asRule('lands'),[{section:'commanders',colors:'GU'}]).url,'https://edhrec.com/lands/simic');
+assert.equal(R.landsFallback(R.asRule('nonbasic-lands'),[{section:'commanders',colors:'W'},{section:'commanders',colors:'BR'}]).url,'https://edhrec.com/lands/mardu');
+assert.equal(R.landsFallback(R.asRule('basic-lands'),[{section:'commanders',colors:''}]).url,'https://edhrec.com/lands/colorless');
+assert.equal(R.landsFallback(R.asRule('lands'),[R.normalizeCard({section:'commanders',name:'Unknown'})]).url,'https://edhrec.com/lands');
+assert.equal(R.landsFallback(R.asRule('ramp')),null);
+assert.equal(R.requirementFallback(R.asRule('instants')).url,'https://edhrec.com/top/instants');
+assert.equal(R.requirementFallback({id:'custom',logic:'all',criteria:[{field:'type',op:'contains',value:'Instant'}]}).label,'instants');
+assert.equal(R.requirementFallback({id:'custom',logic:'all',criteria:[{field:'type',op:'contains',value:'Instant',negate:true}]}),null);
+for(const preset of R.presetLibrary){const search=R.requirementSearch(preset);assert(search.url,preset.id);assert.equal(new URL(search.url).origin,'https://moxfield.com');assert.equal(new URL(search.url).pathname,'/search/cards');assert.equal(new URL(search.url).searchParams.get('q'),search.query);}
+const rampSearch=R.requirementSearch(R.asRule('ramp'),[{section:'commanders',colors:'UG'},{section:'commanders',colors:'B'}]);
+assert(rampSearch.query.endsWith(' sort:edhrec dir:asc'),'Requirement searches default to ascending EDHREC rank');
+assert(new URL(rampSearch.url).searchParams.get('q').endsWith(' sort:edhrec dir:asc'));
+assert(rampSearch.query.includes('id<=UGB'));assert(rampSearch.query.includes('-(t:"land")'));
+for(const preset of R.presetLibrary)assert(!R.requirementSearch(preset).query.match(/(?:o|t|name):\//),'Native requirement queries must not send local regex syntax');
+assert(R.requirementSearch({criteria:[{field:'oracle',op:'regex',value:'draw.*card'}]}).error,'Unsupported custom regex must fail explicitly, not open an unfiltered search');
+assert(R.requirementSearch({logic:'any',criteria:[{field:'oracle',op:'contains',value:'draw'},{field:'type',op:'contains',value:'artifact'}]}).query.includes(' or '));
+assert(R.requirementSearch({criteria:[{field:'tag',op:'contains',value:'draw'}]}).error);
+assert(R.requirementSearch({criteria:[]}).error);
+assert(R.requirementSearch({criteria:[{field:'oracle',op:'regex',value:'['}]}).error);
+assert(R.requirementSearch({criteria:[{field:'name',op:'contains',value:'A "quoted" / name'}]}).query.includes('\\"quoted\\"'));
+const explanation=R.explainMatch(card,R.asRule('ramp'));
+assert.equal(explanation.matched,true);assert.equal(explanation.reasons[0].highlight,'Add {');
+assert(explanation.reasons.some(r=>r.text.includes('not matches pattern land')));
+assert.equal(R.explainMatch(card,R.asRule('ramp'),{'test rock':{ramp:true}}).manual,true);
+assert.equal(R.explainMatch(card,R.asRule('ramp'),{'test rock':{ramp:false}}).matched,false);
+let settings=R.sanitizeSettings();settings.perDeck.A='commander';settings.deckProfiles.A={commander:structuredClone(settings.profiles[0])};settings.deckProfiles.A.commander.rules[0].min=37;settings.deckManualOverrides.A={'test rock':{ramp:false}};
+settings=R.sanitizeSettings(JSON.parse(JSON.stringify(settings)));
+assert.equal(settings.deckProfiles.A.commander.rules[0].min,37);assert.equal(settings.profiles[0].rules[0].min,32);assert.equal(settings.deckProfiles.B,undefined);assert.equal(settings.deckManualOverrides.A['test rock'].ramp,false);
+(async()=>{
+ const listeners=[],opened=[];let mode='ok';
+ const context={browser:{runtime:{onMessage:{addListener:f=>listeners.push(f)}},tabs:{create:async tab=>opened.push(tab)}},AbortController,setTimeout,clearTimeout,fetch:async()=>({ok:true,json:async()=>({data:[{id:'abc123',name:mode==='ok'?'Test Rock':'Wrong Card'}]})})};
+ vm.runInNewContext(fs.readFileSync(require.resolve('../background.js'),'utf8'),context);
+ const open=listeners.find(f=>f.toString().includes('mrd-open-moxfield'));
+ assert.equal(open({type:'other'}),undefined);
+ assert.equal((await open({type:'mrd-open-moxfield',name:'Test Rock'})).ok,true);assert.equal(opened[0].url,'https://moxfield.com/cards/abc123');
+ mode='missing';assert.equal((await open({type:'mrd-open-moxfield',name:'Test Rock'})).ok,false);assert.equal(opened.length,1);
+ console.log('PASS: role explanations, manual overrides, deck settings persistence/isolation, exact Moxfield lookup and missing-card handling.');
+})().catch(error=>{console.error(error);process.exitCode=1});
+

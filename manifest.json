@@ -1,0 +1,101 @@
+{
+  "manifest_version": 3,
+  "name": "LemField",
+  "version": "1.10.60",
+  "description": "Moxfield requirements tracking and EDHREC card browsing with art, categories and add-to-deck actions.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "moxfield-requirements@local.extension"
+    }
+  },
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://api.moxfield.com/*",
+    "https://moxfield.com/*",
+    "https://www.moxfield.com/*",
+    "https://api2.moxfield.com/*",
+    "https://json.edhrec.com/*",
+    "https://edhrec.com/*",
+    "https://api.scryfall.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://moxfield.com/*",
+        "https://www.moxfield.com/*"
+      ],
+      "js": [
+        "deck-bridge.js",
+        "page-hook.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://moxfield.com/*",
+        "https://www.moxfield.com/*"
+      ],
+      "js": [
+        "browser-compat.js",
+        "rules.js",
+        "dashboard-style.js",
+        "edhrec-data.js",
+        "deck-client.js",
+        "deck-list-counts.js",
+        "search-add.js",
+        "deck-print.js",
+        "card-search.js",
+        "print-preferences.js",
+        "role-search.js",
+        "image-loader.js",
+        "edhrec.js",
+        "printing-shortcuts.js",
+        "deck-search-filter.js",
+        "content.js",
+        "feature-ui.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://scryfall.com/card/*",
+        "https://www.scryfall.com/card/*"
+      ],
+      "js": [
+        "browser-compat.js",
+        "scryfall-add.js",
+        "feature-ui.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "LemField",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "scripts": [
+      "safe-response.js",
+      "print-sync.js",
+      "edhrec-data.js",
+      "card-search.js",
+      "art-background.js",
+      "similar-background.js",
+      "background.js"
+    ]
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "dashboard.css"
+      ],
+      "matches": [
+        "https://moxfield.com/*",
+        "https://www.moxfield.com/*"
+      ]
+    }
+  ]
+}

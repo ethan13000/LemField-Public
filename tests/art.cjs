@@ -1,0 +1,33 @@
+const assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs'),path=require('node:path');
+const root=path.resolve(__dirname,'..');
+(async()=>{
+ let listener,calls=[];
+ const ctx={URL,URLSearchParams,AbortController,setTimeout,clearTimeout,browser:{runtime:{onMessage:{addListener:f=>listener=f}}},fetch:async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>({card_faces:[{image_uris:{normal:'https://cards.scryfall.io/normal/front/test.jpg'}}]})}}};
+ vm.createContext(ctx);vm.runInContext(fs.readFileSync(path.join(root,'edhrec-data.js'),'utf8'),ctx);vm.runInContext(fs.readFileSync(path.join(root,'card-search.js'),'utf8'),ctx);vm.runInContext(fs.readFileSync(path.join(root,'art-background.js'),'utf8'),ctx);
+ const first=listener({type:'mrd-card-art',name:'Sol Ring'}),second=listener({type:'mrd-card-art',name:'Sol Ring'});assert.equal(first,second);
+ const result=await first;assert.equal(result.ok,true);assert.match(result.url,/cards.scryfall.io/);assert.equal(calls.length,1);
+ await listener({type:'mrd-card-art',name:'Sol Ring'});assert.equal(calls.length,1);assert.equal(calls[0].options.credentials,'omit');assert.equal(new URL(calls[0].url).searchParams.get('exact'),'Sol Ring');
+ assert.equal(listener({type:'mrd-card-art',name:''}),undefined);
+ assert.equal(listener({type:'mrd-card-art',name:'Sol Ring',printingId:'../named'}),undefined);
+ const printingId='12345678-1234-1234-1234-123456789abc';
+ await listener({type:'mrd-card-art',name:'Sol Ring',printingId});assert.equal(new URL(calls.at(-1).url).pathname,'/cards/'+printingId,'Printing art lookup preserves exact edition');
+ await listener({type:'mrd-card-art',name:'Sol Ring',printing:{set:'sld',collectorNumber:'123'}});assert.equal(new URL(calls.at(-1).url).pathname,'/cards/sld/123','Moxfield edition recovers art by set and collector number');
+ const E=ctx.MoxEDHREC;
+ assert.equal(E.imageURLs({image_uris:{large:'https://cards.scryfall.io/large/test.jpg'}}).length,1);
+ assert.equal(E.imageURLs({card_faces:[{image_uris:{png:'https://cards.scryfall.io/png/test.png'}}]}).length,1);
+ assert.equal(E.imageURLs({image_uris:[{small:'https://cards.scryfall.io/small/test.jpg'}]}).length,1);
+ assert.equal(E.imageURLs({image_uris:{normal:'javascript:bad',large:'https://evil.invalid/art.jpg'}}).length,0);
+ const print=(id,illustration,price,date)=>({id,name:'Sol Ring',set:'cmm',set_name:'Test Set',collector_number:id,illustration_id:illustration,released_at:date,prices:{usd:price},scryfall_uri:'https://scryfall.com/card/cmm/'+id,image_uris:{normal:'https://cards.scryfall.io/normal/'+id+'.jpg'}});
+ ctx.fetch=async url=>{calls.push({url});const query=new URL(url);return {ok:true,json:async()=>({data:query.searchParams.get('page')==='2'?[print('3','common','4.00','2020-01-01')]:[print('1','common','3.00','2024-01-01'),print('2','rare','1.00','2025-01-01')],has_more:query.searchParams.get('page')==='1'})};};
+ const chosen=await listener({type:'mrd-card-art-choice',name:'Sol Ring',mode:'most'});assert.equal(chosen.printing.illustrationId,'common','Most used artwork counts printings across pages');assert.equal(chosen.printing.collectorNumber,'1','Pick the least expensive printing of the chosen artwork');
+ assert.match(new URL(calls.at(-1).url).searchParams.get('q'),/lang:en/,'Automatic artwork search requests English editions');
+ ctx.fetch=async url=>{calls.push({url});return {ok:true,json:async()=>({data:[{...print('phyrexian','arena','1.00','2023-01-01'),lang:'ph'}, {...print('borderless','arena','2.00','2023-01-01'),lang:'en',full_art:true,border_color:'borderless'}, {...print('standard','arena','3.00','2023-01-01'),lang:'en',border_color:'black'}, {...print('other','other','0.50','2023-01-01'),lang:'en'}],has_more:false})};};
+ const readable=await listener({type:'mrd-card-art-choice',name:'Phyrexian Arena',mode:'most'});assert.equal(readable.printing.collectorNumber,'standard','Prefer a readable, standard English edition over cheaper Phyrexian text and full art editions');
+ ctx.fetch=async url=>{calls.push({url});return {ok:true,json:async()=>({data:[{...print('old-art','art','1.00','2020-01-01'),full_art:true},{...print('standard','frame','2.00','2021-01-01'),border_color:'black'}],has_more:false})};};
+ const oldest=await listener({type:'mrd-card-art-choice',name:'Sol Ring',mode:'oldest'});assert.equal(oldest.printing.collectorNumber,'standard','Oldest printing skips full art when a standard frame exists');assert.match(new URL(calls.at(-1).url).searchParams.get('q'),/-border:borderless/);
+ ctx.fetch=async url=>{calls.push({url});const filtered=new URL(url).searchParams.get('q').includes('-is:full');return filtered?{status:404,ok:false}:{ok:true,json:async()=>({data:[{...print('art-only','art','1.00','2020-01-01'),full_art:true}],has_more:false})};};
+ const artOnly=await listener({type:'mrd-card-art-choice',name:'Art Only',mode:'oldest'});assert.equal(artOnly.printing.collectorNumber,'art-only','Cards with no standard printing still show their oldest artwork');
+ assert.equal(listener({type:'mrd-card-art-choice',name:'Sol Ring',mode:'invalid'}),undefined);
+ console.log('PASS: cached/coalesced card art, front-face fallback, fixed Scryfall endpoint and credential-free requests.');
+})().catch(error=>{console.error(error);process.exitCode=1});
+

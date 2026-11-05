@@ -1,0 +1,17 @@
+node_modules
+.playwright/
+.test-results/
+test-results/
+playwright-report/
+tests/*-test.png
+tests/edge-profile/
+tests/window-fix-profile/
+tests/window-fix-profile2/
+.tmp/
+*.har
+*.log
+
+# Generated packages and local captures
+*.zip
+*.zip.sha256
+downloads/

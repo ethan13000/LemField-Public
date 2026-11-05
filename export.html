@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Deck PDF · LemField</title><link rel="stylesheet" href="export.css"></head>
+<body><header><h1>Deck PDF</h1><p>Print card sheets at actual card size (63 × 88 mm). Choose Save as PDF in the print dialog and use 100% scale with headers and footers off.</p>
+<div class="options">
+<label>Paper<select id="paper"><option value="letter">US Letter</option><option value="a4">A4</option></select></label>
+<label>Spacing (mm)<input id="gap" type="number" min="0" max="20" step="0.5" value="2"></label>
+<label>Margins (mm)<input id="margin" type="number" min="0" max="25" step="0.5" value="5"></label>
+<label class="check"><input id="basics" type="checkbox" checked>Skip basic lands</label>
+<label class="check"><input id="copies" type="checkbox" checked>Print every copy</label>
+<label class="check"><input id="tokens" type="checkbox" checked>Include tokens</label>
+<label class="check"><input id="sideboard" type="checkbox">Include sideboard</label>
+<label class="check"><input id="guides" type="checkbox" checked>Cut guides</label><label>Corner style<select id="guide-style"><option value="full">Full outlines</option><option value="rounded">Rounded corners</option></select></label>
+<button id="prepare" disabled>Prepare sheets</button><button id="print" disabled>Print</button><button id="save-pdf" disabled>Save as PDF</button>
+</div><progress id="print-progress" max="100" aria-label="Preparing print sheets" aria-describedby="status"></progress><p id="status" role="status">Reading the current deck…</p><p class="note">Uses the deck's selected printings when available. Double-faced cards print their front face. Missing images must be resolved before printing.</p></header>
+<main class="print-workspace"><div id="sheets" aria-label="Print preview"></div><aside id="card-panel" aria-labelledby="card-list-title"><h2 id="card-list-title">Cards to print</h2><p>Upload a full card image to replace its printing artwork. Custom images are saved locally for this deck and apply to every copy, even after changing the deck edition. They are stretched to 63 × 88 mm.</p><div id="card-list"></div></aside></main><script src="browser-compat.js"></script><script src="print-preferences.js"></script><script src="print-art-store.js"></script><script src="pdf-export.js"></script><script src="export.js"></script></body></html>

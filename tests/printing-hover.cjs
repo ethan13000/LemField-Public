@@ -1,0 +1,11 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const source=fs.readFileSync(require.resolve('../edhrec.js'),'utf8');let savedCalls=0,timer,artCard;const events={},row={isConnected:true,classList:{add(){}},contains:target=>target==='inside',addEventListener:(name,fn)=>events[name]=fn,getBoundingClientRect:()=>({right:100,left:20,top:20}),setAttribute(){}};
+const node=(tag,text)=>({tag,textContent:text,children:[],style:{},isConnected:true,append(...values){this.children.push(...values);},setAttribute(){},showPopover(){}});
+const context={hover:null,hoverPending:null,el:node,crypto:{randomUUID:()=> 'preview'},innerWidth:1200,innerHeight:900,setTimeout:fn=>(timer=fn,1),hideHover(){},art:card=>(artCard=card,node('art')),savedPrintArt:async()=>{savedCalls++;return null;},dialogHost:()=>({shadowRoot:{append(){}}})};
+vm.createContext(context);vm.runInContext(source.slice(source.indexOf('function hoverArt('),source.indexOf('function sameDeckPrinting(')),context);
+const variant={name:'Elf Warrior',id:'exact-variant',set:'tset',setName:'Exact set',collectorNumber:'7'};context.printingVariantPreview({},variant,row);
+events.mouseenter();timer();assert.equal(artCard.id,'exact-variant');assert.equal(savedCalls,0,'A saved print-art preference must not overwrite an edition preview');
+timer=null;events.focusin({relatedTarget:null});assert.equal(timer,null,'Focus on the same preview does not restart it');assert.equal(savedCalls,0);assert.equal(artCard.collectorNumber,'7');
+timer=null;events.focusin({relatedTarget:'inside'});assert.equal(timer,null,'Moving between controls in a row does not restart the preview');
+context.hoverArt({},variant,row);timer();assert.equal(savedCalls,1,'Ordinary card previews retain saved artwork behavior');
+console.log('PASS: artwork-group edition rows preview exact editions on hover and keyboard focus, without saved-art overrides.');

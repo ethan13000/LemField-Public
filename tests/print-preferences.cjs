@@ -1,0 +1,25 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+(async()=>{
+ const storage={},calls=[],context={browser:{storage:{local:{set:async values=>Object.assign(storage,values),get:async()=>storage,remove:async key=>{delete storage[key];}}},runtime:{sendMessage:async request=>{calls.push(request);return {ok:true,url:'https://cards.scryfall.io/normal/example.jpg'};}}}};
+ vm.createContext(context);vm.runInContext(fs.readFileSync(require.resolve('../print-preferences.js'),'utf8'),context);
+ const P=context.MoxPrintPreferences,card={name:'Kaalia of the Vast',section:'commanders',scryfallId:'original-id',set:'cmd',collectorNumber:'1'},printing={id:'00000000-0000-4000-8000-000000000001',set:'mh3',collectorNumber:'489'};
+ await P.save('deckA',card,printing);const choices=await P.read('deckA');assert.equal(choices.size,1);assert.equal((await P.read('deckB')).size,0);
+ assert(!choices.has(P.key('deckA',{...card,section:'mainboard'})),'Keep board choices separate');
+ await assert.rejects(P.save('deckA',card,{...printing,id:'javascript:bad'}),/valid Scryfall/);
+ const source=fs.readFileSync(require.resolve('../export.js'),'utf8');context.printChoice=value=>choices.get(P.key('deckA',value));context.customArt=new Map();context.imageCache=new Map();context.cardKey=value=>value.name;
+ vm.runInContext(source.slice(source.indexOf('function imageFor('),source.indexOf("prepare.addEventListener('click'")),context);
+ await context.imageFor(card);assert.equal(calls[0].printingId,printing.id,'Exporter requests the exact chosen Scryfall edition');assert.equal(card.scryfallId,'original-id','Original deck data stays unchanged');
+ context.customArt.set(card.name,'data:image/png;base64,upload');assert.equal(await context.imageFor(card),'data:image/png;base64,upload');assert.equal(calls.length,1,'Custom upload takes priority without a remote request');
+ await P.clear('deckA',card);assert.equal((await P.read('deckA')).size,0);
+ assert.equal((await P.read('deckA',true)).get(P.key('deckA',card)).printingId,printing.id,'Use deck printing keeps a saved undo choice');
+ assert.equal((await P.read('deckB',true)).size,0,'Undo history is isolated by deck');
+ const changed={...card,set:'new',collectorNumber:'2',scryfallId:'new-deck-edition'};
+ const restored=await P.restore('deckA',changed);assert.equal(restored.printingId,printing.id,'Undo restores the custom edition after deck edition changes');
+ assert.equal((await P.read('deckA')).get(P.key('deckA',changed)).printingId,printing.id);
+ assert.equal((await P.read('deckA',true)).size,0,'Successful undo clears its backup');
+ await assert.rejects(P.restore('deckB',card),/No previous/);
+ await P.clear('deckA',card);
+ const bad=P.key('deckA',card);storage[bad]={version:1,name:card.name,section:card.section,printingId:'https://untrusted.invalid',set:'mh3',collectorNumber:'489'};assert.equal((await P.read('deckA')).size,0,'Ignore invalid saved records');
+ const tokenA={name:'Goblin',section:'tokens',id:'source-a'},tokenB={...tokenA,id:'source-b'};await P.save('deckTokens',tokenA,printing);const value=storage[P.key('deckTokens',tokenA)];delete storage[P.key('deckTokens',tokenA)];storage[P.key('deckTokens',tokenB)]=value;const conflicted=await P.read('deckTokens');assert.equal(conflicted.size,0,'Conflicting token source key never migrates across variants');
+ console.log('PASS: print-only choices are deck/board scoped, validate edition IDs, feed exact export images, allow upload priority/reset, and never mutate deck data.');
+})().catch(error=>{console.error(error);process.exitCode=1;});

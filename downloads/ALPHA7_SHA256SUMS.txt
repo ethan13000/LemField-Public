@@ -1,0 +1,2 @@
+a6d06e1ab6d03da469474f56d377d4fb40f6d8e033ead9f998f9ec21c1c88a3b  LemField-Alpha-7-Firefox.zip
+dc30740d24b73ea0eb9b152af82b0bc99bb2636edad170c13d784f8525d6dfa9  LemField-Alpha-7-Chromium.zip
