@@ -2,6 +2,11 @@ const assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('nod
 require('../rules.js');require('../edhrec-data.js');require('../card-search.js');const C=global.MoxCardSearch;
 const draw={name:'Draw',oracleId:'same',oracle:'Draw a card.',type:'Instant',manaValue:2,price:1,colors:'U',colorIdentityKnown:true,detailsLoaded:true,tags:['Top Cards'],keywords:['Flash'],synergy:20};
 const alias={...draw,name:'Alternate name',tags:['Draw']},red={...draw,name:'Red card',oracleId:'red',colors:'R',price:null,manaValue:null,synergy:null};
+const multicolor={...draw,name:'Blue red',oracleId:'ur',colors:'UR'};
+assert.equal(C.filter([draw,red,multicolor],{selectedColors:['U'],colorMatch:'inclusive'}).length,2);
+assert.equal(C.filter([draw,red,multicolor],{selectedColors:['U'],colorMatch:'exclusive'}).length,1);
+assert.equal(C.filter([draw,red,multicolor],{selectedColors:['U','R'],colorMatch:'exclusive'})[0].name,'Blue red');
+assert.equal(C.filter([{...draw,colorIdentityKnown:false}],{selectedColors:['U']}).length,0);
 assert.equal(C.filter([draw,alias,red]).length,2);assert.equal(C.filter([draw,alias],{condense:false}).length,2);
 assert.equal(C.filter([draw,alias])[0].duplicateCount,2);
 assert.equal(C.filter([draw],{query:'draw instant flash'}).length,1);
@@ -27,6 +32,17 @@ assert.equal(C.printings([a,b,secret],{tag:'showcase',query:'secret lair'}).leng
 assert.equal(C.printing({...raw,scryfall_uri:'javascript:alert(1)'}).url,null);
 assert.equal(C.printings([a,a,b,b],{condense:false}).length,2,'Repeated printing IDs appear once even without artwork grouping');
 assert.equal(C.printings([a,a,b,b],{condense:true})[0].variants.length,2,'Artwork groups count distinct editions');
+for(const treatment of [{border_color:'white'},{border_color:'borderless'},{lang:'ja'},{lang:'de'},{frame:'1993'},{frame_effects:['showcase']},{full_art:true},{textless:true},{finishes:['etched']},{promo_types:['prerelease']},{rarity:'mythic'},{watermark:'izzet'},{security_stamp:'oval'},{flavor_name:'Alternate title'},{flavor_text:'Different printed flavor text'},{printed_text:'Different printed text'},{digital:true}]){
+ const variant=C.printing({...raw,...treatment,id:'variant'});
+ assert.equal(C.printings([a,variant],{condense:true}).length,2,'Distinct appearance stays separate: '+JSON.stringify(treatment));
+ assert.notEqual(C.printingAppearanceKey(a),C.printingAppearanceKey(variant),'UI grouping uses the same appearance identity');
+}
+const japanese=C.printing({...raw,id:'japanese',lang:'ja',printed_name:'Draw'});
+assert.equal(C.printingLanguage(japanese),'Japanese (JA)');assert.equal(C.printings([a,japanese],{query:'Japanese'}).length,1);assert.equal(C.printings([a,japanese],{includeTags:['Japanese (JA)']})[0].id,'japanese');
+const ordered=C.printing({...raw,frame_effects:['legendary','showcase'],finishes:['foil','nonfoil']});
+assert.equal(C.printingAppearanceKey(ordered),C.printingAppearanceKey(C.printing({...raw,frame_effects:['showcase','legendary'],finishes:['nonfoil','foil']})),'Metadata array order does not split identical appearances');
+const dual={...raw,image_uris:undefined,card_faces:[{name:'Front',illustration_id:'front'},{name:'Back',illustration_id:'back'}]};
+assert.equal(C.printings([C.printing(dual),C.printing({...dual,id:'different-back',card_faces:[dual.card_faces[0],{name:'Back',illustration_id:'other-back'}]})],{condense:true}).length,2,'A different reverse illustration stays separate');
 assert.equal(C.printings([secret],{query:'sld showcase 1'}).length,1,'Printing search combines separate terms');
 assert.equal(C.printings([a,b,secret],{includeTags:['Secret Lair','showcase']}).length,1,'All included tags must match');
 assert.equal(C.printings([a,b,secret],{excludeTags:['Secret Lair']}).length,2,'Excluded tags remove matching editions before grouping');
@@ -41,7 +57,11 @@ assert.equal(C.printings([foil],{excludeTags:['FOIL']}).length,0,'Tag comparison
  const result=await first;assert.equal(result.cards.length,1);assert(result.hasMore);
  const url=new URL(calls[0].url);assert.equal(url.origin,'https://api.scryfall.com');assert.equal(url.searchParams.get('unique'),'prints');assert(url.searchParams.get('q').includes('set:sld'));assert.equal(calls[0].options.credentials,'omit');
  assert(url.searchParams.get('q').includes('-is:artseries'),'Art Series inserts are excluded from playable printing searches');
+ assert.equal(url.searchParams.get('include_multilingual'),'false','Printing picker defaults to English');assert(url.searchParams.get('q').includes('lang:en'));
  await listener(message);assert.equal(calls.length,1);assert.equal(listener({...message,page:-1}),undefined);
+ context.fetch=async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>({data:[raw,{...raw,id:'japanese-edition',lang:'ja'}],has_more:false,total_cards:2})};};
+ const allLanguages=await listener({...message,includeOtherLanguages:true});assert.equal(allLanguages.cards.length,2,'Other languages are available when enabled');assert.equal(calls.length,2,'Language modes have separate caches');const allURL=new URL(calls.at(-1).url);assert.equal(allURL.searchParams.get('include_multilingual'),'true');assert(!allURL.searchParams.get('q').includes('lang:en'));
+ await listener({...message,includeOtherLanguages:true});assert.equal(calls.length,2,'Multilingual pages are cached');await listener(message);assert.equal(calls.length,2,'Returning to English reuses only the English cache');
  context.fetch=async()=>({ok:true,json:async()=>({data:[raw,{...raw,id:'art-card',layout:'art_series',collector_number:'28s'}],has_more:false,total_cards:2})});const playable=await listener({type:'mrd-card-printings',name:'Damn',page:1});assert.equal(playable.cards.length,1,'Art Series inserts cannot appear as selectable card printings');
  context.fetch=async()=>({status:404,ok:false});const empty=await listener({...message,page:2});assert.equal(empty.ok,true);assert.equal(empty.cards.length,0);assert.equal(empty.hasMore,false);
  console.log('PASS: expanded filters, role/color/price handling, oracle identity condensation, art grouping, Secret Lair/tags sorting, printing pagination, safe endpoints and cache/coalescing.');

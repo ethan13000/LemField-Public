@@ -23,6 +23,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .sheet{position:relative;flex:none;background:#fff;box-shadow:0 4px 20px #0006;overflow:hidden}
 .sheet img{position:absolute;width:63mm;height:88mm;object-fit:fill}
 .sheet.guides img{outline:.15mm dashed #999;outline-offset:.5mm}
+.sheet-cut-guides{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 .print-workspace{display:grid;grid-template-columns:minmax(0,1fr) 320px;max-width:1500px;margin:0 auto;align-items:start}
 #card-panel{position:sticky;top:20px;margin:28px 20px 28px 0;padding:18px;background:var(--panel);border:1px solid var(--line);border-radius:6px;max-height:calc(100vh - 40px);overflow:auto}
 #card-panel h2{margin:0;font-size:19px}#card-panel p{font-size:12px}

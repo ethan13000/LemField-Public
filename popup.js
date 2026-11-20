@@ -2,10 +2,18 @@
 (async()=>{
  const boxes=[...document.querySelectorAll('[data-feature]')],message=document.getElementById('message');
  const defaults={requirements:true,edhrec:true,printing:true,scryfall:true,deckSearch:true,pdf:true,explorer:true,sidebar:true,highlight:false,searchAdd:true,prefetchRoles:true};
- const syncStatus=document.getElementById('sync-status'),syncButtons=['sync-now','export-settings','import-settings'].map(id=>document.getElementById(id));
+ const syncStatus=document.getElementById('sync-status'),syncButtons=['enable-sync','sync-now','export-settings','import-settings'].map(id=>document.getElementById(id));
  const requestSync=async(action,values={})=>{const reply=await browser.runtime.sendMessage({type:'mrd-print-sync',action,...values});if(!reply?.ok)throw Error(reply?.error||'Print settings are unavailable. Reload LemField and try again.');return reply;};
  const showSync=status=>{syncStatus.textContent=status?.message||'Browser sync has not been checked yet.';};
  const withSync=async action=>{syncButtons.forEach(button=>{button.disabled=true;});try{await action();}catch(error){syncStatus.textContent=error.message;}finally{syncButtons.forEach(button=>{button.disabled=false;});}};
+ const syncToggle=document.getElementById('enable-sync'),chromeSyncKey='mrd_chrome_print_sync_enabled_v1';
+ const updateSyncToggle=async()=>{if(globalThis.MoxChromium===true)syncToggle.textContent=(await browser.storage.local.get(chromeSyncKey))[chromeSyncKey]===true?'Disable print settings sync':'Enable print settings sync';};
+ await updateSyncToggle();
+ syncToggle.addEventListener('click',()=>withSync(async()=>{
+  if(globalThis.MoxChromium===true){const enabled=(await browser.storage.local.get(chromeSyncKey))[chromeSyncKey]===true;await browser.storage.local.set({[chromeSyncKey]:!enabled});await updateSyncToggle();}
+  else {if(!browser.permissions?.request)throw Error('Firefox data-consent controls are unavailable.');const granted=await browser.permissions.request({data_collection:['technicalAndInteraction']});if(!granted){syncStatus.textContent='Sync remains off. Local preferences and export/import are available.';return;}}
+  showSync((await requestSync('now')).status);
+ }));
  document.getElementById('sync-now').addEventListener('click',()=>withSync(async()=>showSync((await requestSync('now')).status)));
  document.getElementById('export-settings').addEventListener('click',()=>withSync(async()=>{
   const {backup}=await requestSync('export'),url=URL.createObjectURL(new Blob([JSON.stringify(backup,null,2)],{type:'application/json'})),link=document.createElement('a');

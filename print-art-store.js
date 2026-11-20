@@ -2,9 +2,12 @@
 (()=>{
  'use strict';
  const P=globalThis.MoxPrintPreferences;
+ const currentDatabase='moxfield-plus-print-art-v1';
+ // Retain artwork in an existing same-extension database across a brand change.
+ const databaseName=typeof indexedDB.databases==='function'?indexedDB.databases().then(databases=>{if(databases.some(db=>db.name===currentDatabase))return currentDatabase;const prior=databases.filter(db=>typeof db.name==='string'&&db.name.endsWith('-print-art-v1'));return prior.length===1?prior[0].name:currentDatabase;}).catch(()=>currentDatabase):Promise.resolve(currentDatabase);
  let writes=Promise.resolve();
- function transact(mode,operation){return new Promise((resolve,reject)=>{
-  const open=indexedDB.open('lemfield-print-art-v1',1);
+ async function transact(mode,operation){const name=await databaseName;return new Promise((resolve,reject)=>{
+  const open=indexedDB.open(name,1);
   open.onupgradeneeded=()=>open.result.createObjectStore('art',{keyPath:'key'});
   open.onerror=()=>reject(open.error||Error('Could not open artwork storage.'));
   open.onblocked=()=>reject(Error('Artwork storage is busy. Close older Print tabs and retry.'));

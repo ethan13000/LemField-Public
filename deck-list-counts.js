@@ -16,29 +16,37 @@ function show(cell,item){
  if(cell.textContent!==text)cell.textContent=text;if(cell.title!==title)cell.title=title;
 }
 function schedule(){clearTimeout(timer);timer=setTimeout(scan,100);}
+function showCommanders(cell,item){
+ const text=item?.error?'Unavailable':item?(item.commanders||[]).join(' + ')||'—':'…';
+ if(cell.textContent!==text)cell.textContent=text;
+ const title=item?.error?'Commander unavailable: '+item.error:text;
+ if(cell.title!==title)cell.title=title;
+}
 function drain(){
  while(running<2&&queue.length){
   const job=queue.shift();if(!job.row.isConnected||job.epoch!==epoch){if(pending.get(job.id)===job)pending.delete(job.id);continue;}
   running++;
-  Promise.resolve().then(()=>globalThis.MoxDecks.cardCount(job.id)).then(count=>{if(!Number.isSafeInteger(count)||count<0)throw Error('Invalid card count.');if(job.epoch===epoch)cache.set(job.id,{count,time:Date.now()});},error=>{if(job.epoch===epoch)cache.set(job.id,{error:String(error.message||'Request failed'),time:Date.now()});}).catch(error=>{if(job.epoch===epoch)cache.set(job.id,{error:error.message,time:Date.now()});}).finally(()=>{running--;if(pending.get(job.id)===job)pending.delete(job.id);if(cache.size>300)cache.delete(cache.keys().next().value);schedule();drain();});
+  Promise.resolve().then(()=>globalThis.MoxDecks.listSummary(job.id)).then(summary=>{if(!Number.isSafeInteger(summary?.count)||summary.count<0)throw Error('Invalid card count.');if(job.epoch===epoch)cache.set(job.id,{...summary,time:Date.now()});},error=>{if(job.epoch===epoch)cache.set(job.id,{error:String(error.message||'Request failed'),time:Date.now()});}).catch(error=>{if(job.epoch===epoch)cache.set(job.id,{error:error.message,time:Date.now()});}).finally(()=>{running--;if(pending.get(job.id)===job)pending.delete(job.id);if(cache.size>300)cache.delete(cache.keys().next().value);schedule();drain();});
  }
 }
 function scan(){
  for(const table of listingTables()){
   const header=table.querySelector('thead tr');if(!header)continue;
-  const nativeHeaders=[...header.cells].filter(cell=>!cell.hasAttribute('data-mrd-card-count')),name=nativeHeaders.find(cell=>cell.textContent.trim().toLowerCase()==='name');if(!name)continue;
+  const nativeHeaders=[...header.cells].filter(cell=>!cell.hasAttribute('data-mrd-card-count')&&!cell.hasAttribute('data-mrd-commanders')),name=nativeHeaders.find(cell=>cell.textContent.trim().toLowerCase()==='name');if(!name)continue;
   let heading=header.querySelector('[data-mrd-card-count]');if(!heading){heading=document.createElement('th');heading.dataset.mrdCardCount='';heading.textContent='Cards';heading.scope='col';heading.title=description;heading.className=name.className;heading.style.cssText='width:80px;white-space:nowrap';header.insertBefore(heading,name.nextSibling);}
+  if(!header.querySelector('[data-mrd-commanders]')){const commanderHeading=document.createElement('th');commanderHeading.dataset.mrdCommanders='';commanderHeading.textContent='Commander';commanderHeading.scope='col';commanderHeading.className=name.className;header.insertBefore(commanderHeading,heading);}
   const position=nativeHeaders.indexOf(name)+1;
   for(const row of table.querySelectorAll('tbody tr')){
    if(row.closest('table')!==table)continue;
-   let cell=row.querySelector('[data-mrd-card-count]');const nativeCells=[...row.cells].filter(value=>!value.hasAttribute('data-mrd-card-count'));
+   let cell=row.querySelector('[data-mrd-card-count]');const nativeCells=[...row.cells].filter(value=>!value.hasAttribute('data-mrd-card-count')&&!value.hasAttribute('data-mrd-commanders'));
    // Folder and empty-state rows sometimes span the entire table.
    const spanning=nativeCells.find(value=>value.colSpan>1);
-   if(spanning){if(!spanning.hasAttribute('data-mrd-original-colspan')){spanning.dataset.mrdOriginalColspan=String(spanning.colSpan);spanning.colSpan++;}continue;}
+   if(spanning){if(!spanning.hasAttribute('data-mrd-original-colspan'))spanning.dataset.mrdOriginalColspan=String(spanning.colSpan);const span=Number(spanning.dataset.mrdOriginalColspan)+2;if(spanning.colSpan!==span)spanning.colSpan=span;continue;}
    const links=[...row.querySelectorAll('a[href]')],id=links.map(link=>deckLinkID(link.href)).find(Boolean);
    if(!cell){cell=document.createElement('td');cell.dataset.mrdCardCount='';cell.className=nativeCells[position]?.className||name.className;cell.style.cssText='white-space:nowrap;font-variant-numeric:tabular-nums';row.insertBefore(cell,nativeCells[position]||null);}
-   if(!id){if(cell.textContent)cell.textContent='';if(cell.title)cell.title='';delete cell.dataset.deckId;continue;}
-   cell.dataset.deckId=id;const item=fresh(id);show(cell,item);
+   let commanderCell=row.querySelector('[data-mrd-commanders]');if(!commanderCell){commanderCell=document.createElement('td');commanderCell.dataset.mrdCommanders='';commanderCell.className=cell.className;commanderCell.style.cssText='min-width:160px;max-width:320px;overflow-wrap:anywhere';row.insertBefore(commanderCell,cell);}
+   if(!id){for(const value of [cell,commanderCell]){if(value.textContent)value.textContent='';if(value.title)value.title='';delete value.dataset.deckId;}continue;}
+   cell.dataset.deckId=id;commanderCell.dataset.deckId=id;const item=fresh(id);show(cell,item);showCommanders(commanderCell,item);
    const rect=row.getBoundingClientRect();
    if(!item&&!pending.has(id)&&rect.bottom>=0&&rect.top<=window.innerHeight){const job={id,row,epoch};pending.set(id,job);queue.push(job);}
   }

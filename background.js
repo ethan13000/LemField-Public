@@ -11,14 +11,14 @@ browser.runtime.onMessage.addListener(message=>{
  return (async()=>{
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
  try{
-  if(message.originalPrintings===true&&typeof message.cardId==='string'&&/^[A-Za-z0-9_-]{1,100}$/.test(message.cardId)){await browser.tabs.create({url:'https://moxfield.com/cards/'+encodeURIComponent(message.cardId)+'?lemfield-printings=original'});return {ok:true};}
+  if(message.originalPrintings===true&&typeof message.cardId==='string'&&/^[A-Za-z0-9_-]{1,100}$/.test(message.cardId)){await browser.tabs.create({url:'https://moxfield.com/cards/'+encodeURIComponent(message.cardId)+'?moxfield-plus-printings=original'});return {ok:true};}
  const edition=message.originalPrintings===true?message.printing:null;if(edition&&(!/^[a-z0-9]{2,10}$/i.test(edition.set||'')||typeof edition.collectorNumber!=='string'||edition.collectorNumber.length>30))throw Error('Invalid source token edition.');
  const response=await fetch('https://api2.moxfield.com/v2/cards/search?q='+encodeURIComponent(message.name.trim()+(edition?' set:'+edition.set:''))+'&page=1',{signal:controller.signal,credentials:'omit',headers:{Accept:'application/json'}});
   if(!response.ok)throw Error(`Moxfield: HTTP ${response.status}`);
   const data=await (globalThis.MoxResponses?globalThis.MoxResponses.json(response):response.json()),key=value=>String(value||'').replace(/\s+/g,' ').trim().toLowerCase();
   const card=(Array.isArray(data)?data:data.data||[]).find(c=>key(c.name)===key(message.name)&&(!edition||(key(typeof c.set==='object'?c.set?.code:c.set)===key(edition.set)&&String(c.cn??c.collector_number??c.collectorNumber??'')===edition.collectorNumber)));
   if(!card||! /^[A-Za-z0-9_-]+$/.test(card.id||''))throw Error('No exact card found on Moxfield.');
-  await browser.tabs.create({url:'https://moxfield.com/cards/'+encodeURIComponent(card.id)+(message.originalPrintings===true?'?lemfield-printings=original':'')});
+  await browser.tabs.create({url:'https://moxfield.com/cards/'+encodeURIComponent(card.id)+(message.originalPrintings===true?'?moxfield-plus-printings=original':'')});
   return {ok:true};
  }catch(error){return {ok:false,error:error.name==='AbortError'?'Moxfield lookup timed out.':error.message};}
  finally{clearTimeout(timer);}

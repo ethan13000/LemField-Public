@@ -76,6 +76,7 @@ function filter(rows,options={}){
   if(maxMana!==null&&(number(card.manaValue)===null||card.manaValue>maxMana))return false;
   if(maxPrice!==null&&(number(card.price)===null||card.price>maxPrice))return false;
   if(options.colors!==undefined&&options.colors!==null&&(!card.colorIdentityKnown||[...String(card.colors||'')].some(color=>!options.colors.includes(color))))return false;
+  if(options.selectedColors?.length){const identity=String(card.colors||'');if(!card.colorIdentityKnown)return false;if(options.colorMatch==='exclusive'?!([...identity].every(c=>options.selectedColors.includes(c))&&options.selectedColors.every(c=>identity.includes(c))):!options.selectedColors.some(c=>identity.includes(c)))return false;}
   if(options.tokenKind&&!createsTokenKind(card,options.tokenKind))return false;
   if(options.role||options.rule){if(!card.detailsLoaded)return false;const R=globalThis.MoxRules;const rule=options.rule||R?.asRule(options.role);if(!rule||!R.matches({...card,tags:allTags,name:card.name,colors:card.colors||'',manaValue:card.manaValue??null},rule))return false;}
   return true;
@@ -100,11 +101,17 @@ function printing(card){
  card=card&&typeof card==='object'?card:{};
  const images=globalThis.MoxEDHREC.imageURLs(card),image=images[0];
  let url=null;try{const candidate=new URL(card.scryfall_uri);if(candidate.origin==='https://scryfall.com'&&candidate.pathname.startsWith('/card/'))url=candidate.href;}catch{}
- return {...metadata(card),id:String(card.id||''),name:String(card.name||''),printedName:String(card.printed_name||card.name||''),lang:String(card.lang||'en'),image:globalThis.MoxEDHREC.imageURL(image),images,url,illustrationId:card.illustration_id||card.card_faces?.[0]?.illustration_id||null,collectorNumber:String(card.collector_number||''),releasedAt:card.released_at||'',finishes:card.finishes||[],rarity:card.rarity||'',borderColor:card.border_color||'',layout:card.layout||'',fullArt:card.full_art===true,textless:card.textless===true,promo:card.promo===true,digital:card.digital===true};
+ return {...metadata(card),id:String(card.id||''),name:String(card.name||''),printedName:String(card.printed_name||card.name||''),lang:String(card.lang||'en'),image:globalThis.MoxEDHREC.imageURL(image),images,url,illustrationId:card.illustration_id||card.card_faces?.[0]?.illustration_id||null,collectorNumber:String(card.collector_number||''),releasedAt:card.released_at||'',finishes:strings(card.finishes),rarity:card.rarity||'',borderColor:card.border_color||'',layout:card.layout||'',fullArt:card.full_art===true,textless:card.textless===true,promo:card.promo===true,digital:card.digital===true,frame:String(card.frame||''),watermark:String(card.watermark||''),securityStamp:String(card.security_stamp||''),flavorName:String(card.flavor_name||''),printedText:String(card.printed_text||''),flavorText:String(card.flavor_text||''),faceAppearance:(Array.isArray(card.card_faces)?card.card_faces:[]).map(face=>[face.illustration_id||'',face.printed_name||face.name||'',face.flavor_name||'',face.printed_text||'',face.flavor_text||'',face.watermark||''])};
 }
-function printingTags(card){return [...new Set([...tags(card),...(card.finishes||[]),card.rarity,card.borderColor?card.borderColor+' border':'',...(card.fullArt?['Full art']:[]),...(card.textless?['Textless']:[]),...(card.promo?['Promo']:[]),...(card.digital?['Digital']:[])].filter(Boolean))];}
+function printingLanguage(card){const code=key(card.lang||'en'),names={en:'English',es:'Spanish',fr:'French',de:'German',it:'Italian',pt:'Portuguese',ja:'Japanese',ko:'Korean',ru:'Russian',zhs:'Simplified Chinese',zht:'Traditional Chinese',he:'Hebrew',la:'Latin',grc:'Ancient Greek',ar:'Arabic',sa:'Sanskrit',ph:'Phyrexian',qya:'Quenya'};return (names[code]||code.toUpperCase())+' ('+code.toUpperCase()+')';}
+function printingAppearanceKey(card){
+ if(!card.illustrationId)return card.id;
+ const sorted=value=>strings(value).map(key).sort();
+ return JSON.stringify([card.oracleId||key(card.name),card.illustrationId,key(card.printedName),key(card.lang||'en'),key(card.borderColor),key(card.frame),sorted(card.frameEffects),!!card.fullArt,!!card.textless,key(card.layout),sorted(card.finishes),sorted(card.promoTypes),key(card.rarity),key(card.watermark),key(card.securityStamp),key(card.flavorName),key(card.printedText),key(card.flavorText),card.faceAppearance||[],!!card.digital]);
+}
+function printingTags(card){return [...new Set([...tags(card),printingLanguage(card),...(card.finishes||[]),card.rarity,card.borderColor?card.borderColor+' border':'',card.frame?card.frame+' frame':'',card.watermark?card.watermark+' watermark':'',card.securityStamp?card.securityStamp+' stamp':'',...(card.fullArt?['Full art']:[]),...(card.textless?['Textless']:[]),...(card.promo?['Promo']:[]),...(card.digital?['Digital']:[])].filter(Boolean))];}
 function printings(rows,options={}){
- const unique=new Map();for(const row of rows){const id=row.id||[row.oracleId||key(row.name),key(row.set),row.collectorNumber,row.printedName].join('|');if(!unique.has(id))unique.set(id,row);}
+ const unique=new Map();for(const row of rows){const id=row.id||[row.oracleId||key(row.name),key(row.set),row.collectorNumber,row.printedName,row.lang||'en'].join('|');if(!unique.has(id))unique.set(id,row);}
  let result=[...unique.values()].filter(card=>{
   if(options.tokenReference&&!tokenVariantMatches(options.tokenReference,card))return false;
   const allTags=printingTags(card).map(key);
@@ -112,10 +119,10 @@ function printings(rows,options={}){
  });
  const compare=(a,b)=>options.sort==='oldest'?(a.releasedAt||'9999').localeCompare(b.releasedAt||'9999'):options.sort==='secretLair'?Number(b.secretLair)-Number(a.secretLair)||b.releasedAt.localeCompare(a.releasedAt):options.sort==='set'?a.setName.localeCompare(b.setName)||a.collectorNumber.localeCompare(b.collectorNumber):options.sort==='tag'?(tags(a).sort()[0]||'\uffff').localeCompare(tags(b).sort()[0]||'\uffff'):options.sort==='price'?(a.price??Infinity)-(b.price??Infinity):b.releasedAt.localeCompare(a.releasedAt);
  result.sort(compare);
- if(options.condense){const groups=new Map();for(const row of result){const id=row.illustrationId?(row.oracleId||key(row.name))+'|'+row.illustrationId+'|'+key(row.printedName)+'|'+row.frameEffects.join(','):row.id;
+ if(options.condense){const groups=new Map();for(const row of result){const id=printingAppearanceKey(row);
    if(!groups.has(id))groups.set(id,{...row,variants:[row]});else groups.get(id).variants.push(row);
   }result=[...groups.values()];}
  return result;
 }
-globalThis.MoxCardSearch={metadata,tags,triggers,createsTokenKind,tokenVariantMatches,isBasicLand,discoveryQuery,printingTags,condense,filter,printing,printings};
+globalThis.MoxCardSearch={metadata,tags,triggers,createsTokenKind,tokenVariantMatches,isBasicLand,discoveryQuery,printingLanguage,printingAppearanceKey,printingTags,condense,filter,printing,printings};
 })();

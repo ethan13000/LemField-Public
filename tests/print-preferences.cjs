@@ -9,7 +9,9 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('nod
  const source=fs.readFileSync(require.resolve('../export.js'),'utf8');context.printChoice=value=>choices.get(P.key('deckA',value));context.customArt=new Map();context.imageCache=new Map();context.cardKey=value=>value.name;
  vm.runInContext(source.slice(source.indexOf('function imageFor('),source.indexOf("prepare.addEventListener('click'")),context);
  await context.imageFor(card);assert.equal(calls[0].printingId,printing.id,'Exporter requests the exact chosen Scryfall edition');assert.equal(card.scryfallId,'original-id','Original deck data stays unchanged');
- context.customArt.set(card.name,'data:image/png;base64,upload');assert.equal(await context.imageFor(card),'data:image/png;base64,upload');assert.equal(calls.length,1,'Custom upload takes priority without a remote request');
+ context.customArt.set(card.name,'data:image/png;base64,upload');assert.equal((await context.imageFor(card)).front,'data:image/png;base64,upload');assert.equal(calls.length,1,'Custom upload takes priority without a remote request');
+ const double={name:'Front // Back',section:'mainboard',scryfallId:'double-id'};context.browser.runtime.sendMessage=async request=>{calls.push(request);return {ok:true,url:'front-url',printFaces:['front-url','back-url']};};
+ context.customArt.set(double.name,'custom-front');const pair=await context.imageFor(double);assert.equal(pair.front,'custom-front');assert.equal(pair.back,'back-url');assert.equal(calls.at(-1).printingId,'double-id','Both faces come from the same exact edition');assert.equal(pair.faceCount,2);
  await P.clear('deckA',card);assert.equal((await P.read('deckA')).size,0);
  assert.equal((await P.read('deckA',true)).get(P.key('deckA',card)).printingId,printing.id,'Use deck printing keeps a saved undo choice');
  assert.equal((await P.read('deckB',true)).size,0,'Undo history is isolated by deck');
@@ -21,5 +23,18 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('nod
  await P.clear('deckA',card);
  const bad=P.key('deckA',card);storage[bad]={version:1,name:card.name,section:card.section,printingId:'https://untrusted.invalid',set:'mh3',collectorNumber:'489'};assert.equal((await P.read('deckA')).size,0,'Ignore invalid saved records');
  const tokenA={name:'Goblin',section:'tokens',id:'source-a'},tokenB={...tokenA,id:'source-b'};await P.save('deckTokens',tokenA,printing);const value=storage[P.key('deckTokens',tokenA)];delete storage[P.key('deckTokens',tokenA)];storage[P.key('deckTokens',tokenB)]=value;const conflicted=await P.read('deckTokens');assert.equal(conflicted.size,0,'Conflicting token source key never migrates across variants');
+ // A legacy token record enumerates before a newer variant-specific record.
+ const token={name:'Treasure',section:'tokens',tokenSourceId:'original-token'},legacyKey=P.prefix('migration')+encodeURIComponent(JSON.stringify(['tokens','treasure'])),canonical=P.key('migration',token);
+ const old={version:1,...token,printingId:printing.id,set:'mh3',collectorNumber:'1',selectedAt:100};
+ const newest={...old,collectorNumber:'2',selectedAt:200};
+ storage[legacyKey]=old;storage[canonical]=newest;
+ assert.equal((await P.read('migration')).get(canonical).collectorNumber,'2','Read selects the newest token printing');
+ assert.equal(storage[canonical].collectorNumber,'2','Legacy migration must not overwrite the newer persisted canonical choice');
+ assert.equal((await P.read('migration')).get(canonical).collectorNumber,'2','Newest printing survives reopening');
+ const legacyUndo=legacyKey.replace(P.prefix('migration'),P.undoPrefix('migration')),canonicalUndo=canonical.replace(P.prefix('migration'),P.undoPrefix('migration'));
+ storage[legacyUndo]=old;storage[canonicalUndo]=newest;
+ assert.equal((await P.read('migration',true)).get(canonical).collectorNumber,'2');assert.equal(storage[canonicalUndo].collectorNumber,'2','Undo migration also retains the newest printing');
+ storage[legacyKey]=old;storage[canonical]=null;storage.mrd_print_sync_meta_v1={[canonical]:{v:1,t:300,d:'other-device',value:null}};
+ assert.equal((await P.read('migration')).size,0,'Legacy printing must not resurrect a canonical sync tombstone');assert.equal(storage[canonical],null);
  console.log('PASS: print-only choices are deck/board scoped, validate edition IDs, feed exact export images, allow upload priority/reset, and never mutate deck data.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

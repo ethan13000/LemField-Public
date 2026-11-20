@@ -1,5 +1,5 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
-const root=path.resolve(__dirname,'..'),read=name=>fs.readFileSync(path.join(root,name),'utf8');
+const root=process.env.MOX_CHROME_RELEASE_DIR?path.resolve(process.env.MOX_CHROME_RELEASE_DIR):path.resolve(__dirname,'..'),read=name=>fs.readFileSync(path.join(root,name),'utf8');
 function environment(){
  const listeners=[],calls=[],storage={},synced={},state={document:false,created:0,fetches:0};
  const chrome={

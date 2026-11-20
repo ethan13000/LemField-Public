@@ -5,9 +5,12 @@ if(window.__mrdBridgeInstalled)return;
 window.__mrdBridgeInstalled=true;
 const deckId=()=>location.pathname.match(/^\/decks\/([A-Za-z0-9_-]+)/)?.[1];
 const urlId=url=>{try{const u=new URL(String(url),location.href);return /^https:\/\/api2?\.moxfield\.com$/i.test(u.origin)?u.pathname.match(/^\/v[23]\/decks\/all\/([A-Za-z0-9_-]+)\/?$/)?.[1]:null;}catch{return null;}};
-let cached=null;
-function publish(data,url){
+let cached=null,captureEpoch=0;
+const isDeckWrite=(url,method)=>{try{const u=new URL(String(url),location.href);return /^(POST|PUT|PATCH|DELETE)$/i.test(method||'GET')&&/^https:\/\/api2?\.moxfield\.com$/i.test(u.origin)&&/^\/v[23]\/decks\//.test(u.pathname);}catch{return false;}};
+function invalidateDeck(id){if(!id||id!==deckId())return;cached=null;captureEpoch++;window.postMessage({source:'mrd-deck-invalidated-v1',id},location.origin);}
+function publish(data,url,epoch=captureEpoch){
  const id=deckId();
+ if(epoch!==captureEpoch)return;
  if(!id||urlId(url)!==id||!data||typeof data!=='object'||!(data.boards||data.mainboard||data.mainBoard||data.commanders))return;
  cached={source:'mrd-deck-response-v2',id,deck:data};
  window.postMessage(cached,location.origin);
@@ -19,7 +22,7 @@ async function readDeckJSON(response,limit=8*1024*1024){
 }
 window.addEventListener('message',e=>{
  if(e.source===window&&e.origin===location.origin&&e.data?.source==='mrd-ready-v1'&&cached?.id===deckId())window.postMessage(cached,location.origin);
- if(e.source===window&&e.origin===location.origin&&['mrd-deck-add-complete-v1','mrd-deck-printing-complete-v1'].includes(e.data?.source)&&e.data.id===deckId())showDeckRefreshNotice();
+ if(e.source===window&&e.origin===location.origin&&['mrd-deck-add-complete-v1','mrd-deck-printing-complete-v1','mrd-deck-updated-v1'].includes(e.data?.source)&&e.data.id===deckId()){cached=null;captureEpoch++;showDeckRefreshNotice();}
 });
 const originalFetch=window.fetch;
 function showDeckRefreshNotice(){
@@ -32,25 +35,30 @@ function showDeckRefreshNotice(){
  if(!listTop){const search=main.querySelector('input[type="search"],[placeholder*="Search" i],[aria-label*="Search" i]');listTop=search?.parentElement?.nextElementSibling||search?.parentElement?.parentElement||main;}
  banner=document.createElement('div');banner.id='mrd-deck-refresh-notice';banner.setAttribute('role','status');
  Object.assign(banner.style,{boxSizing:'border-box',width:'100%',padding:'12px 16px',margin:'0 0 12px',background:'#8f2635',color:'#fff',border:'1px solid #c65d68',borderRadius:'5px',font:'600 14px/1.4 system-ui,sans-serif',position:'relative',zIndex:'1000'});
- const message=document.createElement('span');message.textContent='Deck updated. If the list does not refresh automatically, refresh this page.';
+ const message=document.createElement('span');message.textContent='LemField updated your deck. Its panels update automatically; the Moxfield card list may need a refresh.';
  const refresh=document.createElement('button');refresh.type='button';refresh.textContent='Refresh now';Object.assign(refresh.style,{marginLeft:'12px',padding:'6px 10px',border:'1px solid #fff8',borderRadius:'4px',background:'#fff',color:'#651b28',font:'600 13px system-ui,sans-serif',cursor:'pointer'});refresh.addEventListener('click',()=>location.reload());
  banner.append(message,refresh);listTop.parentNode.insertBefore(banner,listTop);
 }
 window.fetch=function(...args){
+ const activeId=deckId(),epoch=captureEpoch;
  const response=originalFetch.apply(this,args);
  try{const url=args[0] instanceof URL?args[0].href:typeof args[0]==='string'?args[0]:args[0]?.url;
-  if(urlId(url))response.then(res=>{if(res.ok)readDeckJSON(res.clone()).then(data=>publish(data,url)).catch(()=>{});}).catch(()=>{});
+  if(urlId(url))response.then(res=>{if(res.ok)readDeckJSON(res.clone()).then(data=>publish(data,url,epoch)).catch(()=>{});}).catch(()=>{});
+  if(isDeckWrite(url,args[1]?.method||args[0]?.method))response.then(res=>{if(res.ok)invalidateDeck(activeId);}).catch(()=>{});
  }catch{}
  return response;
 };
 const requests=new WeakMap(), originalOpen=XMLHttpRequest.prototype.open,originalSend=XMLHttpRequest.prototype.send;
-XMLHttpRequest.prototype.open=function(method,url,...rest){requests.set(this,String(method).toUpperCase()==='GET'&&urlId(url)?String(url):null);return originalOpen.call(this,method,url,...rest);};
+const writeRequests=new WeakMap(),readEpochs=new WeakMap();
+XMLHttpRequest.prototype.open=function(method,url,...rest){readEpochs.set(this,captureEpoch);writeRequests.set(this,isDeckWrite(url,method)?deckId():null);requests.set(this,String(method).toUpperCase()==='GET'&&urlId(url)?String(url):null);return originalOpen.call(this,method,url,...rest);};
 XMLHttpRequest.prototype.send=function(...args){
  const url=requests.get(this);
- if(url)this.addEventListener('load',()=>{if(this.status>=200&&this.status<300)try{publish(this.responseType==='json'?this.response:JSON.parse(this.responseText),url);}catch{}},{once:true});
+ const changedId=writeRequests.get(this);if(changedId)this.addEventListener('load',()=>{if(this.status>=200&&this.status<300)invalidateDeck(changedId);},{once:true});
+ if(url)this.addEventListener('load',()=>{if(this.status>=200&&this.status<300)try{publish(this.responseType==='json'?this.response:JSON.parse(this.responseText),url,readEpochs.get(this));}catch{}},{once:true});
  return originalSend.apply(this,args);
 };
+window.addEventListener('popstate',()=>{cached=null;captureEpoch++;document.getElementById?.('mrd-deck-refresh-notice')?.remove();});
 for(const name of ['pushState','replaceState']){
- const original=history[name];history[name]=function(...args){const old=location.pathname;const result=original.apply(this,args);if(old!==location.pathname){cached=null;window.postMessage({source:'mrd-route-v3'},location.origin);}return result;};
+ const original=history[name];history[name]=function(...args){const old=location.pathname;const result=original.apply(this,args);if(old!==location.pathname){cached=null;captureEpoch++;document.getElementById?.('mrd-deck-refresh-notice')?.remove();window.postMessage({source:'mrd-route-v3'},location.origin);}return result;};
 }
 })();

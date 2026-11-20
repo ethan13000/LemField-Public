@@ -1,11 +1,23 @@
 {
   "manifest_version": 3,
   "name": "LemField",
-  "version": "1.10.60",
-  "description": "Moxfield requirements tracking and EDHREC card browsing with art, categories and add-to-deck actions.",
+  "version": "1.1.0",
+  "description": "Independent Moxfield companion: deck requirements, card discovery, printing tools, and duplex-ready card sheets.",
   "browser_specific_settings": {
     "gecko": {
-      "id": "moxfield-requirements@local.extension"
+      "id": "moxfield-requirements@local.extension",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": [
+          "websiteContent",
+          "searchTerms",
+          "authenticationInfo",
+          "browsingActivity"
+        ],
+        "optional": [
+          "technicalAndInteraction"
+        ]
+      }
     }
   },
   "permissions": [
@@ -27,6 +39,9 @@
         "https://www.moxfield.com/*"
       ],
       "js": [
+        "duplicates.js",
+        "deck-selection-model.js",
+        "deck-bulk.js",
         "deck-bridge.js",
         "page-hook.js"
       ],
@@ -43,8 +58,13 @@
         "rules.js",
         "dashboard-style.js",
         "edhrec-data.js",
+        "duplicates.js",
         "deck-client.js",
+        "deck-selection-model.js",
+        "deck-selection.js",
+        "deck-duplicates.js",
         "deck-list-counts.js",
+        "basic-lands.js",
         "search-add.js",
         "deck-print.js",
         "card-search.js",
@@ -74,7 +94,12 @@
   ],
   "action": {
     "default_title": "LemField",
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "48": "icons/icon-48.png",
+      "96": "icons/icon-96.png",
+      "128": "icons/icon-128.png"
+    }
   },
   "background": {
     "scripts": [
@@ -97,5 +122,11 @@
         "https://www.moxfield.com/*"
       ]
     }
-  ]
+  ],
+  "incognito": "not_allowed",
+  "icons": {
+    "48": "icons/icon-48.png",
+    "96": "icons/icon-96.png",
+    "128": "icons/icon-128.png"
+  }
 }

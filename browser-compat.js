@@ -3,6 +3,7 @@
  'use strict';
  if(typeof globalThis.browser!=='undefined')return;
  if(typeof globalThis.chrome==='undefined')return;
+ globalThis.MoxChromium=true;
  const api=globalThis.chrome;
  const call=(owner,name)=>(...args)=>new Promise((resolve,reject)=>{
   owner[name](...args,result=>{const error=api.runtime.lastError;if(error)reject(new Error(error.message));else resolve(result);});

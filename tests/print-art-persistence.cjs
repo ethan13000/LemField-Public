@@ -21,5 +21,20 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('nod
  vm.createContext(context);vm.runInContext(source.slice(source.indexOf('function schedulePrepare('),source.indexOf("controls.forEach(")),context);
  context.invalidate();context.invalidate();assert.equal(timers.size,1,'Option changes debounce to one automatic prepare');
  [...timers.values()][0]();assert.equal(clicks,1);assert.equal(context.print.disabled,true,'Old preview cannot print while rebuilding');
+ // Reset must clear an upload whose persistence started before its preview appeared.
+ let releaseSave;const pendingSave=new Promise(resolve=>{releaseSave=resolve;});let persisted=true,invalidated=0;
+ const resetContext={deck:{id:'deckA'},uploadRuns:new Map(),customArt:new Map(),undoChoices:new Map(),printChoices:new Map([['art-key',{}]]),URL:{revokeObjectURL(){}},browser:{storage:{local:{remove:async()=>{}}}},MoxPrintArtStore:{clear:async()=>{await pendingSave;persisted=false;}},MoxPrintPreferences:{clear:async()=>null},invalidate:()=>invalidated++};
+ vm.createContext(resetContext);vm.runInContext(source.slice(source.indexOf('async function resetArtwork('),source.indexOf('function renderCardList(')),resetContext);
+ const reset=resetContext.resetArtwork(card,'art-key');releaseSave();await reset;
+ assert.equal(persisted,false,'Reset clears queued first upload even before customArt contains it');assert.equal(invalidated,1);assert.equal(resetContext.printChoices.has('art-key'),false,'Use deck printing also clears the old edition');
+ let releaseClear;resetContext.MoxPrintArtStore.clear=()=>new Promise(resolve=>{releaseClear=resolve;});
+ const laterReset=resetContext.resetArtwork(card,'art-key');const newTicket={};resetContext.uploadRuns.set('art-key',newTicket);resetContext.customArt.set('art-key','new-upload');releaseClear();await laterReset;
+ assert.equal(resetContext.customArt.get('art-key'),'new-upload','A newer upload supersedes an older reset');
+ // Associated-token failures stay visible instead of being overwritten by success text.
+ const statusNode={textContent:''};let autoPrepared=0;
+ const loadContext={URLSearchParams,location:{search:'?tab=1'},deck:null,printChoices:new Map(),undoChoices:new Map(),customArt:new Map(),tokenQuantities:new Map(),URL:{createObjectURL:()=>''},document:{title:''},prepare:{disabled:true},progress:{},$:()=>statusNode,renderCardList(){},schedulePrepare:()=>autoPrepared++,browser:{tabs:{sendMessage:async()=>({ok:true,deck:{id:'deckA',name:'Test',cards:[]}})},runtime:{sendMessage:async()=>({ok:false,error:'Offline token service'})},storage:{local:{get:async()=>({})},onChanged:{addListener(){}}}},MoxPrintPreferences:{read:async()=>new Map(),prefix:()=>''},MoxPrintArtStore:{read:async()=>new Map()}};
+ vm.createContext(loadContext);const initStart=source.lastIndexOf('try{',source.indexOf(' const tab=Number'));
+ await vm.runInContext('(async()=>{'+source.slice(initStart,source.lastIndexOf('})();'))+'})()',loadContext);
+ assert.match(statusNode.textContent,/Some associated tokens could not be loaded/);assert.match(statusNode.textContent,/Offline token service/);assert.equal(autoPrepared,0,'Failed token discovery waits for an explicit prepare rather than hiding its warning');assert.equal(loadContext.prepare.disabled,false);
  console.log('PASS: uploaded art survives reopen and edition changes, explicit reset/deck isolation, supported image types and debounced automatic preview preparation.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

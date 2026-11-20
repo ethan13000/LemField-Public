@@ -10,8 +10,9 @@ const link=(text,url)=>{const a=el('a',text);a.href=url;a.target='_blank';a.rel=
 const edhrecReminder="Don't be an EDHREC warrior: Think about how each card fits your deck's plan. Use EDHREC for ideas, rather than adding cards just because they're popular.";
 const moxfieldCardURL=name=>'https://moxfield.com/search/cards?q='+encodeURIComponent(String(name||''));
 const visible=node=>node.isConnected&&!node.closest('[hidden],[aria-hidden="true"]')&&getComputedStyle(node).display!=='none'&&node.getClientRects().length>0;
-let current=null,generation=0,timer=null,addedInEDHRECPlus=false,printingChangedInDialog=false;const openDialogs=new Set();
-function noteDeckChanged(printing=false){if(printing)printingChangedInDialog=true;else addedInEDHRECPlus=true;if(!openDialogs.size){addedInEDHRECPlus=false;printingChangedInDialog=false;location.reload();}}
+let current=null,generation=0,timer=null,addedInEDHRECPlus=false,printingChangedInDialog=false,changedDeckID=null;const openDialogs=new Set();
+function notifyDeckChanged(){const id=changedDeckID;addedInEDHRECPlus=false;printingChangedInDialog=false;changedDeckID=null;if(id&&id===location.pathname.match(/^\/decks\/([A-Za-z0-9_-]+)/)?.[1])window.postMessage({source:'mrd-deck-updated-v1',id},location.origin);}
+function noteDeckChanged(printing=false,id=location.pathname.match(/^\/decks\/([A-Za-z0-9_-]+)/)?.[1]){if(!id||id!==location.pathname.match(/^\/decks\/([A-Za-z0-9_-]+)/)?.[1])return;changedDeckID=id;if(printing)printingChangedInDialog=true;else addedInEDHRECPlus=true;if(!openDialogs.size)notifyDeckChanged();}
 const button=(text,action,cls='')=>{const node=el('button',text,cls);node.type='button';node.onclick=action;return node;};
 let windowHost=null;
 function dialogHost(){
@@ -24,7 +25,7 @@ function dialog(view,title){
  heading.id='edh-title-'+crypto.randomUUID();modal.setAttribute('aria-labelledby',heading.id);
  const host=dialogHost(),previous=host.shadowRoot.activeElement||view.host.shadowRoot.activeElement||document.activeElement;
  let closed=false;
- const close=()=>{if(closed)return;closed=true;openDialogs.delete(modal);hideHover();if(modal.open)modal.close();modal.remove();cleanArt();if(previous?.isConnected&&previous!==document.body&&previous!==document.documentElement)previous.focus({preventScroll:true});if(!openDialogs.size&&(addedInEDHRECPlus||printingChangedInDialog)){addedInEDHRECPlus=false;printingChangedInDialog=false;location.reload();}};
+ const close=()=>{if(closed)return;closed=true;openDialogs.delete(modal);hideHover();if(modal.open)modal.close();modal.remove();cleanArt();if(previous?.isConnected&&previous!==document.body&&previous!==document.documentElement)previous.focus({preventScroll:true});if(!openDialogs.size&&(addedInEDHRECPlus||printingChangedInDialog))notifyDeckChanged();};
  head.append(heading,button('Close',close));modal.append(head,body);host.shadowRoot.append(modal);
  modal.addEventListener('cancel',event=>{event.preventDefault();close();});modal.addEventListener('close',close);modal.showModal();openDialogs.add(modal);
  return {modal,body,close};
@@ -93,7 +94,7 @@ function edhrecFilterScore(filters={}){
 }
 function isEdhrecStaple(card){
  const name=String(card.name||'').normalize('NFKC').trim().toLowerCase();
- return /\bbasic\b.*\bland\b/i.test(card.type||'')||/^(?:snow-covered )?(?:plains|island|swamp|mountain|forest|wastes)$/.test(name)||/^(?:arcane|azorius|boros|dimir|golgari|gruul|izzet|orzhov|rakdos|selesnya|simic) signet$/.test(name)||/^talisman of (?:progress|dominance|indulgence|impulse|unity|hierarchy|creativity|resilience|conviction|curiosity)$/.test(name)||new Set(['sol ring','swords to plowshares','path to exile','command tower','exotic orchard','fellwar stone','mind stone','thought vessel','cultivate',"kodama's reach",'farseek',"nature's lore",'three visits','rampant growth','counterspell','swan song','negate','generous gift','beast within','chaos warp','blasphemous act','austere command','toxic deluge','cyclonic rift','lightning greaves','swiftfoot boots','rhystic study','mystic remora','smothering tithe','demonic tutor','vampiric tutor']).has(name);
+ return /\bland\b/i.test(card.type||card.type_line||'')||/^(?:snow-covered )?(?:plains|island|swamp|mountain|forest|wastes)$/.test(name)||/^(?:arcane|azorius|boros|dimir|golgari|gruul|izzet|orzhov|rakdos|selesnya|simic) signet$/.test(name)||/^talisman of (?:progress|dominance|indulgence|impulse|unity|hierarchy|creativity|resilience|conviction|curiosity)$/.test(name)||new Set(['sol ring','swords to plowshares','path to exile','command tower','exotic orchard','fellwar stone','mind stone','thought vessel','cultivate',"kodama's reach",'farseek',"nature's lore",'three visits','rampant growth','counterspell','swan song','negate','generous gift','beast within','chaos warp','blasphemous act','austere command','toxic deluge','cyclonic rift','lightning greaves','swiftfoot boots','rhystic study','mystic remora','smothering tithe','demonic tutor','vampiric tutor']).has(name);
 }
 function createEdhrecBurstMonitor({now=()=>Date.now(),load=()=>null,save=()=>{}}={}){
  let states=Object.create(null),lastDeck=null;try{const data=load();if(data&&typeof data==='object'){lastDeck=typeof data.deck==='string'?data.deck:null;if(data.states&&typeof data.states==='object')for(const [id,item] of Object.entries(data.states).slice(-16))if(/^[A-Za-z0-9_-]{1,100}$/.test(id)&&item&&Array.isArray(item.rows))states[id]={rows:item.rows.slice(-20),dismissedUntil:Number.isFinite(item.dismissedUntil)?item.dismissedUntil:0};}}catch{}
@@ -103,10 +104,10 @@ function createEdhrecBurstMonitor({now=()=>Date.now(),load=()=>null,save=()=>{}}
   record(card,deck,context={}){
    if(!/^[A-Za-z0-9_-]{1,100}$/.test(deck||'')||!context.fromEdhrec||context.filterScore>=2||context.board!=='mainboard'||isEdhrecStaple(card))return false;
    const time=now(),item=state(deck),name=String(card.name||'').trim().toLowerCase();if(!name)return false;
-   item.rows=item.rows.filter(row=>typeof row.name==='string'&&Number.isFinite(row.time)&&time-row.time<60000&&time>=row.time&&row.name!==name);item.rows.push({name,time});item.rows=item.rows.slice(-20);states[deck]=item;lastDeck=deck;
+   item.rows=item.rows.filter(row=>typeof row.name==='string'&&Number.isFinite(row.time)&&time-row.time<15000&&time>=row.time&&row.name!==name);item.rows.push({name,time});item.rows=item.rows.slice(-20);states[deck]=item;lastDeck=deck;
    const ids=Object.keys(states);if(ids.length>16)delete states[ids[0]];persist();return this.active();
   },
-  active(){if(!lastDeck)return false;const time=now(),item=state(lastDeck);return time>=(item.dismissedUntil||0)&&item.rows.filter(row=>Number.isFinite(row.time)&&time>=row.time&&time-row.time<60000).length>=3;},
+  active(){if(!lastDeck)return false;const time=now(),item=state(lastDeck);return time>=(item.dismissedUntil||0)&&item.rows.filter(row=>Number.isFinite(row.time)&&time>=row.time&&time-row.time<15000).length>=3;},
   dismiss(){if(lastDeck){states[lastDeck]={...state(lastDeck),rows:[],dismissedUntil:now()+120000};persist();}}
  };
 }
@@ -125,6 +126,13 @@ function art(card,large=false,view=null){
  const describe=details=>{placeholder.textContent=[card.name,details?.manaCost||card.manaCost,details?.type||card.type,details?.oracle||card.oracle||card.description||'Card details loading…'].filter(Boolean).join('\n\n');};
  describe(knownDetails(card.name));wrap.append(placeholder);
  const candidates=E.imageURLs(card),attempted=new Set();let requested=false;
+ let faces=[],faceIndex=0,flip=null,imageGeneration=0;
+ const useFaces=value=>{
+  const urls=value?.printFaces||(!value?.image_uris&&Array.isArray(value?.card_faces)?value.card_faces.map(face=>E.imageURLs({image_uris:face.image_uris})[0]):[]);
+  if(urls.length<2||!urls[0]||!urls[1])return;
+  faces=urls;
+  if(!flip){flip=el('button','Show back face','edh-face-toggle');flip.type='button';flip.setAttribute('aria-label','Show back face of '+card.name);flip.onclick=event=>{event.preventDefault();event.stopPropagation();faceIndex=1-faceIndex;flip.textContent=faceIndex?'Show front face':'Show back face';flip.setAttribute('aria-label',flip.textContent+' of '+card.name);attempted.clear();for(const img of wrap.querySelectorAll('img'))img.remove();next();};wrap.append(flip);}
+ };
  const exact=!!(card.set&&card.collectorNumber),candidateId=card.scryfallId||card.id,printingId=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(candidateId||'')?candidateId:null;
  const unavailable=()=>{placeholder.hidden=false;if(!placeholder.textContent.includes('Image unavailable.'))placeholder.textContent+='\n\nImage unavailable.';};
  const recover=(named=false)=>{
@@ -132,20 +140,21 @@ function art(card,large=false,view=null){
   requestCardDetails(card.name,named?null:printingId,named?null:exact?{set:card.set,collectorNumber:card.collectorNumber}:null,card.previewPriority||false).then(result=>{
    if(result?.details)describe(result.details);else if(result?.description)describe({oracle:result.description});
    if(result?.manaCost){card.manaCost=result.manaCost;wrap._onCardDetails?.();}
-   if(result?.ok)candidates.push(...E.imageURLs({image:result.url,images:result.images}));
-   next();
+   if(result?.ok){candidates.push(...E.imageURLs({image:result.url,images:result.images}));useFaces(result);}
+   if(!imageReady)next();
   });
  };
  const next=()=>{
-  const url=candidates.find(value=>!attempted.has(value));
+  const choices=faces.length?[faces[faceIndex]]:candidates,url=choices.find(value=>!attempted.has(value));
   if(!url){recover();return;}attempted.add(url);placeholder.hidden=false;
-  const img=el('img');img.alt=card.name;img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';
+  const version=++imageGeneration,img=el('img');img.alt=card.name+(faces.length?(faceIndex?' — back':' — front'):'');img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';
   img.className='edh-art-loading';wrap.append(img);
   globalThis.MoxImageLoader.enqueue(img,url,{visible:()=>visible,priority:card.previewPriority==='hover'?'hover':large,
-   loaded:()=>{imageReady=true;img.className='';placeholder.hidden=true;artObserver?.unobserve(wrap);artTargets.delete(wrap);},
-   failed:()=>{imageReady=false;img.remove();next();}});
+   loaded:()=>{if(version!==imageGeneration)return;imageReady=true;img.className='';placeholder.hidden=true;artObserver?.unobserve(wrap);artTargets.delete(wrap);if(!faces.length&&card.name.includes(' // ')&&!requested)recover();},
+   failed:()=>{if(version!==imageGeneration)return;imageReady=false;img.remove();next();}});
  };
- const activate=inView=>{visible=inView;if(inView&&!started){started=true;requestDescription(card.name,describe);const show=()=>{if(candidates.length)next();else recover();};if(view?.explorerArtMode)explorerPrinting(view,card).then(printing=>{const urls=E.imageURLs(printing);candidates.unshift(...urls);show();},()=>{candidates.length=0;recover(true);});else show();}globalThis.MoxImageLoader.pump();};
+ useFaces(card);
+ const activate=inView=>{visible=inView;if(inView&&!started){started=true;requestDescription(card.name,describe);const show=()=>{if(candidates.length)next();else recover();};if(view?.explorerArtMode)explorerPrinting(view,card).then(printing=>{const urls=E.imageURLs(printing);candidates.unshift(...urls);useFaces(printing);show();},()=>{candidates.length=0;recover(true);});else show();}globalThis.MoxImageLoader.pump();};
  if(card.previewPriority==='hover')activate(true);else if(artObserver){artTargets.set(wrap,activate);artObserver.observe(wrap);}else activate(true);
  return wrap;
 }
@@ -175,11 +184,11 @@ function printingVariantPreview(view,variant,row){
  row.addEventListener('focusin',event=>{if(!row.contains(event.relatedTarget))show();});
  row.addEventListener('focusout',event=>{if(!row.contains(event.relatedTarget))hideHover();});
 }
-function sameDeckPrinting(card,choice){return !card.lemfieldVirtualToken&&!!choice&&(card.scryfallId===choice.printingId||(String(card.set||'').toLowerCase()===String(choice.set||'').toLowerCase()&&String(card.collectorNumber||'')===String(choice.collectorNumber||'')&&!!card.set&&!!card.collectorNumber));}
+function sameDeckPrinting(card,choice){return !card.moxfieldPlusVirtualToken&&!!choice&&(card.scryfallId===choice.printingId||(String(card.set||'').toLowerCase()===String(choice.set||'').toLowerCase()&&String(card.collectorNumber||'')===String(choice.collectorNumber||'')&&!!card.set&&!!card.collectorNumber));}
 async function uploadedChoices(deck,choices){const values=await browser.storage.local.get(null);for(const [key,value] of Object.entries(values))if(key.startsWith('mrd_uploaded_art_v1:'+globalThis.MoxPrintPreferences.prefix(deck))&&/^data:image\/jpeg;base64,/.test(value?.url||'')){choices.set(key.slice('mrd_uploaded_art_v1:'.length),{...value.card,printingId:key,set:'CUSTOM',collectorNumber:'upload'});}return choices;}
 function printPreviewCards(preview,choices){
  const cards=[...(preview?.cards||[])],P=globalThis.MoxPrintPreferences;
- for(const choice of choices.values())if(choice.section==='tokens'&&choice.standaloneToken===true&&!cards.some(row=>{try{return P.key(preview.id,row)===P.key(preview.id,choice);}catch{return false;}}))cards.push({...choice,id:choice.tokenSourceId||'',isToken:true,qty:1,lemfieldVirtualToken:true});
+ for(const choice of choices.values())if(choice.section==='tokens'&&choice.standaloneToken===true&&!cards.some(row=>{try{return P.key(preview.id,row)===P.key(preview.id,choice);}catch{return false;}}))cards.push({...choice,id:choice.tokenSourceId||'',isToken:true,qty:1,moxfieldPlusVirtualToken:true});
  return cards;
 }
 async function savedPrintArt(card){
@@ -201,7 +210,7 @@ function addActions(view,card,container){
  const choose=button('⋯',()=>chooseDeck(view,card),'edh-art-add edh-art-add-other');choose.title='Add to another deck';choose.setAttribute('aria-label','Add to another deck');
  const last=button('+',async()=>{
   last.disabled=true;last.setAttribute('aria-busy','true');status.textContent='Adding…';
-  try{const deck=await globalThis.MoxDecks.current();if(!deck)throw new Error('Open a deck in this tab first.');const {result,fallback}=await addExplorerCard(view,card,deck.id);noteDeckChanged();status.textContent=`Added to ${result.deck.name}${fallback?' with Moxfield’s default printing':''}.`;last.textContent='✓';last.setAttribute('data-state','added');last.setAttribute('aria-label',`Added to ${result.deck.name}`);}
+  try{const deck=await globalThis.MoxDecks.current();if(!deck)throw new Error('Open a deck in this tab first.');const {result,fallback}=await addExplorerCard(view,card,deck.id);noteDeckChanged(false,deck.id);status.textContent=`Added to ${result.deck.name}${fallback?' with Moxfield’s default printing':''}.`;last.textContent='✓';last.setAttribute('data-state','added');last.setAttribute('aria-label',`Added to ${result.deck.name}`);}
   catch(error){status.textContent=error.message;last.disabled=false;}
   finally{last.setAttribute('aria-busy','false');}
  });
@@ -223,7 +232,7 @@ async function chooseDeck(view,card){
   const add=button('Add to selected deck',async()=>{
    if(!select.value){status.textContent='Select a deck first.';return;}
    add.disabled=true;search.disabled=true;select.disabled=true;board.disabled=true;status.textContent='Adding…';
-   try{const {result,fallback}=await addExplorerCard(view,card,select.value,board.value);noteDeckChanged();status.textContent=`Added ${card.name} to ${result.deck.name}${fallback?' with Moxfield’s default printing':''}.`;add.textContent='Added';}
+   try{const {result,fallback}=await addExplorerCard(view,card,select.value,board.value);noteDeckChanged(false,select.value);status.textContent=`Added ${card.name} to ${result.deck.name}${fallback?' with Moxfield’s default printing':''}.`;add.textContent='Added';}
    catch(error){status.textContent=error.message;add.disabled=false;search.disabled=false;select.disabled=false;board.disabled=false;}
   });
   box.body.append(search,select,board,add);
@@ -281,7 +290,8 @@ function browsePrintings(view,card){
  tagOrder.classList.add('edh-tag-sort');
  tagOrder.setAttribute('aria-label','Sort tags by frequency instead of name');tagOrder.setAttribute('aria-pressed','true');tagOrder.title='Frequency counts how many loaded printings have each tag, before filters or artwork grouping.';
  tag.append(filterSummary,el('p','+ requires a tag; − hides it. Click again to clear. All included tags must match. Finish tags indicate available finishes.','hint'),tagOrder,filterRows,clearFilters);
- const condensed=el('input');condensed.type='checkbox';condensed.checked=true;const condensedLabel=el('label');condensedLabel.append(condensed,document.createTextNode(' Condense repeated artwork'));
+ const condensed=el('input');condensed.type='checkbox';condensed.checked=true;const condensedLabel=el('label');condensedLabel.append(condensed,document.createTextNode(' Condense matching appearances'));condensedLabel.title='Groups matching artwork, language, border, frame, and treatment. Different appearances stay separate.';
+ const otherLanguages=el('input');otherLanguages.type='checkbox';otherLanguages.checked=false;otherLanguages.setAttribute('aria-label','Show other languages');const languageLabel=el('label');languageLabel.append(otherLanguages,document.createTextNode(' Show other languages'));languageLabel.title='English printings are shown by default. Enable to include other languages.';
  const moveCard=async(direction)=>{
   nextCard.disabled=true;previousCard.disabled=true;status.textContent=`Finding ${direction>0?'next':'previous'} deck card…`;
   try{
@@ -309,7 +319,7 @@ function browsePrintings(view,card){
  tools.append(el('p','Tip: hold Alt when using a native Printings action or Ctrl+Shift+click to bypass LemField.','hint'));
  const uploadInput=el('input');uploadInput.type='file';uploadInput.accept='image/png,image/jpeg,image/webp';uploadInput.hidden=true;
  const uploadStatus=el('span',null,'hint'),uploadButton=button('Upload print artwork',()=>uploadInput.click(),'compact');tools.append(uploadButton,uploadInput,uploadStatus);
- uploadInput.onchange=async()=>{const file=uploadInput.files?.[0];if(!file)return;uploadButton.disabled=true;const target={...activeCard};try{if(!['image/png','image/jpeg','image/webp'].includes(file.type)||file.size>20*1024*1024)throw Error('Choose PNG, JPEG or WebP smaller than 20 MB.');const deck=await globalThis.MoxDecks.preview();const matches=deck.cards.filter(row=>row.name===target.name&&(!target.section||row.section===target.section));if(matches.length!==1)throw Error('Open this card from its deck entry to upload artwork.');const card=matches[0],url=URL.createObjectURL(file);let data;try{const image=new Image();image.src=url;await image.decode();const canvas=document.createElement('canvas');canvas.width=744;canvas.height=1039;const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,744,1039);ctx.drawImage(image,0,0,744,1039);data=canvas.toDataURL('image/jpeg',.95);canvas.width=canvas.height=0;}finally{URL.revokeObjectURL(url);}const key='mrd_uploaded_art_v1:'+globalThis.MoxPrintPreferences.key(deck.id,card);await browser.storage.local.set({[key]:{card,url:data}});uploadStatus.textContent='Custom print artwork saved for '+card.name;applyDeckSavedPrintArt();}catch(error){uploadStatus.textContent=error.message;}finally{uploadButton.disabled=false;uploadInput.value='';}};
+ uploadInput.onchange=async()=>{const file=uploadInput.files?.[0];if(!file)return;uploadButton.disabled=true;const target={...activeCard};try{if(!['image/png','image/jpeg','image/webp'].includes(file.type)||file.size>20*1024*1024)throw Error('Choose PNG, JPEG or WebP smaller than 20 MB.');const deck=await globalThis.MoxDecks.preview();const matches=deck.cards.filter(row=>row.name===target.name&&(!target.section||row.section===target.section));if(matches.length!==1)throw Error('Open this card from its deck entry to upload artwork.');const card=matches[0],url=URL.createObjectURL(file);let data;try{const image=new Image();image.src=url;let decodeTimer;try{await Promise.race([image.decode(),new Promise((_,reject)=>{decodeTimer=setTimeout(()=>{image.src='';reject(Error('Custom image decoding timed out.'));},20000);})]);}finally{clearTimeout(decodeTimer);}const canvas=document.createElement('canvas');canvas.width=744;canvas.height=1039;const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,744,1039);ctx.drawImage(image,0,0,744,1039);data=canvas.toDataURL('image/jpeg',.95);canvas.width=canvas.height=0;}finally{URL.revokeObjectURL(url);}const key='mrd_uploaded_art_v1:'+globalThis.MoxPrintPreferences.key(deck.id,card);await browser.storage.local.set({[key]:{card,url:data}});uploadStatus.textContent='Custom print artwork saved for '+card.name;applyDeckSavedPrintArt();}catch(error){uploadStatus.textContent=error.message;}finally{uploadButton.disabled=false;uploadInput.value='';}};
  let rows=[],page=0,total=null,hasMore=false,loading=false,epoch=0,error='';
  const isTokenPrinting=printing=>activeCard.isToken===true||printing?.layout==='token'||/\btoken\b/i.test(String(printing?.type||printing?.typeLine||''));
  const orderedCards=cards=>order.value==='name'?[...cards].sort((a,b)=>a.name.localeCompare(b.name)||a.section.localeCompare(b.section)):[...cards];
@@ -346,7 +356,7 @@ function browsePrintings(view,card){
   filterSummary.textContent='Filter tags'+(states.size?' ('+states.size+')':'');clearFilters.disabled=!states.size;
   const includeTags=[...states].filter(([,mode])=>mode==='include').map(([value])=>value),excludeTags=[...states].filter(([,mode])=>mode==='exclude').map(([value])=>value);
   const filtered=C.printings(rows,{query:search.value,sort:sort.value,includeTags,excludeTags,condense:condensed.checked,tokenReference});
-  const artKey=print=>print.illustrationId?(print.oracleId||print.name.toLowerCase())+'|'+print.illustrationId+'|'+print.printedName.toLowerCase()+'|'+(print.frameEffects||[]).join(','):print.id;
+  const artKey=C.printingAppearanceKey;
   const artCounts=new Map();for(const print of filtered){const id=artKey(print);artCounts.set(id,(artCounts.get(id)||0)+(print.variants?.length||1));}
   const mostPrintings=Math.max(0,...artCounts.values());
   list.replaceChildren(...filtered.map(print=>{
@@ -354,15 +364,15 @@ function browsePrintings(view,card){
    if(isMost)item.append(el('span',`Most printings · ${count}`,'edh-most-printings-badge'));
    if(used)item.append(el('span',`In deck · ${selectedPrinting.set} #${selectedPrinting.collectorNumber}`,'edh-used-printing-badge'));
    if(printOnlySelection&&!sameDeckPrinting(selectedPrinting||{},printOnlySelection)&&variants.some(variant=>variant.id===printOnlySelection.printingId))item.append(el('span',`Print artwork · ${printOnlySelection.set.toUpperCase()} #${printOnlySelection.collectorNumber}`,'edh-print-art-badge'));
-   item.append(el('p',[print.releasedAt,print.price!==null?'$'+print.price.toFixed(2):'Price unavailable',...C.tags(print)].filter(Boolean).join(' · '),'edh-result-tags'));
+   item.append(el('p',[print.releasedAt,print.price!==null?'$'+print.price.toFixed(2):'Price unavailable',...C.printingTags(print)].filter(Boolean).join(' · '),'edh-result-tags'));
    const actionSource=activeCard;actionSource.openOriginalSelector=()=>globalThis.MoxPrintingShortcuts.openOriginal(actionSource,()=>box.close());const updateSelection=(actual,result)=>{const previousId=actionSource.cardId,section=actionSource.section,sourceName=actionSource.name,updatedId=result?.cardId||previousId;for(const entries of [deckCards,deckOrder]){if(!entries)continue;const index=entries.findIndex(row=>(previousId&&row.id===previousId)||(!previousId&&row.name.toLocaleLowerCase()===sourceName.toLocaleLowerCase()&&(!section||row.section===section)));if(index>=0)entries[index]={...entries[index],id:updatedId,set:actual.set,collectorNumber:actual.collectorNumber,scryfallId:null,image:null,image_uris:null,card_faces:[]};}if(activeCard===actionSource||(activeCard.name.toLocaleLowerCase()===sourceName.toLocaleLowerCase()&&(!section||activeCard.section===section))){selectionEpoch++;activeCard={...actionSource,cardId:updatedId,set:actual.set,collectorNumber:actual.collectorNumber};selectedPrinting={set:actual.set,collectorNumber:actual.collectorNumber};renderDeckList();render();}};
    {const actions=el('div',null,'edh-card-actions');actions.append(usePrintingAction({...actionSource,isToken:isTokenPrinting(print)},print,candidates,updateSelection,choice=>{printOnlySelection=choice;render();}));item.append(actions);}
-   if(print.variants?.length>1){const details=el('details',null,'edh-printing-variants'),summary=el('summary',`Show ${print.variants.length} printings with this artwork`);details.append(summary);
+   if(print.variants?.length>1){const details=el('details',null,'edh-printing-variants'),summary=el('summary',`Show ${print.variants.length} printings with this appearance`);details.append(summary);
     for(const variant of print.variants){const row=el('div');if(selectedPrinting&&String(variant.set||'').toLowerCase()===String(selectedPrinting.set||'').toLowerCase()&&String(variant.collectorNumber)===String(selectedPrinting.collectorNumber)){row.classList.add('edh-used-printing-variant');row.append(el('strong','In deck · '));}if(printOnlySelection?.printingId===variant.id)row.append(el('strong','Print artwork · '));const editionLink=link(`${variant.setName} #${variant.collectorNumber}${variant.price!==null?' · $'+variant.price.toFixed(2):''}`,variant.url);row.append(editionLink);printingVariantPreview(view,variant,row);{const actions=el('div',null,'edh-card-actions');actions.append(usePrintingAction({...actionSource,isToken:isTokenPrinting(variant)},variant,print.variants,updateSelection,choice=>{printOnlySelection=choice;render();}));row.append(actions);}details.append(row);}item.append(details);
    }
    return item;
   }));
-  status.textContent=error||`${loading?'Loading… ':''}${filtered.length} ${condensed.checked?'artwork groups':'printings'} shown · ${rows.length}${total!==null?' of '+total:''} printings loaded`;
+  status.textContent=error||`${loading?'Loading… ':''}${filtered.length} ${condensed.checked?'appearance groups':'printings'} shown · ${rows.length}${total!==null?' of '+total:''} printings loaded`;
   more.hidden=!hasMore&&!error;more.disabled=loading;more.textContent=error?'Retry loading printings':'Load more printings';cleanArt();
  }
  async function load(reset){
@@ -378,7 +388,7 @@ function browsePrintings(view,card){
     if(!details?.ok||!details.details)throw Error('Could not verify this token variant. Use the original Moxfield selector or retry.');
     tokenReference=details.details;
    }
-   const result=await browser.runtime.sendMessage({type:'mrd-card-printings',name:activeCard.name,isToken:activeCard.isToken===true,artTag,page:next});
+   const result=await browser.runtime.sendMessage({type:'mrd-card-printings',name:activeCard.name,isToken:activeCard.isToken===true,includeOtherLanguages:otherLanguages.checked,artTag,page:next});
    if(!box.modal.isConnected||token!==epoch)return;
    if(!result?.ok)throw Error(result?.error||'Could not load printings.');
    const unique=new Map(rows.map(row=>[row.id,row]));for(const row of result.cards||[])unique.set(row.id,row);rows=[...unique.values()];page=next;total=result.total;hasMore=result.hasMore;
@@ -394,6 +404,7 @@ function browsePrintings(view,card){
   else if(allMatches.length>matches.length)artTagList.append(el('p','Showing first 80 matches. Refine the search to find other tags.','hint'));
  }
  artTagFilter.addEventListener('toggle',async()=>{if(!artTagFilter.open||availableArtTags||artTagsLoading)return;artTagsLoading=true;artTagSearch.hidden=false;artTagStatus.textContent='Loading valid Scryfall art tags…';try{const result=await browser.runtime.sendMessage({type:'mrd-art-tag-names',illustrationIds:rows.map(print=>print.illustrationId).filter(Boolean)});if(!result?.ok)throw Error(result?.error||'Scryfall art tags are unavailable.');availableArtTags=result.tags;artTagStatus.textContent=`${availableArtTags.length.toLocaleString()} applicable illustration tags. Tags shared by every artwork are hidden.`;renderArtTagChoices();}catch(error){artTagStatus.textContent=error.message;artTagSearch.hidden=true;}finally{artTagsLoading=false;}});
+ tools.insertBefore(languageLabel,condensedLabel.nextSibling);otherLanguages.onchange=()=>{for(const row of rows)states.delete(C.printingLanguage(row));load(true);};
  artTagSearch.oninput=renderArtTagChoices;for(const control of [sort,condensed])control.onchange=render;search.oninput=render;load(true);
 }
 function usePrintingAction(source,printing,alternatives=[],onSelected,onPrintOnly){
@@ -415,19 +426,20 @@ function usePrintingAction(source,printing,alternatives=[],onSelected,onPrintOnl
  const tokenPrinting=source.isToken===true||/\btoken\b/i.test(String(printing.type||''));
  printOnly.hidden=!globalThis.MoxPrintPreferences;printOnly.title='Use this exact artwork in proxy exports without changing the Moxfield deck.';
  const apply=button('Use this printing',async()=>{
+  const updateDeckID=location.pathname.match(/^\/decks\/([A-Za-z0-9_-]+)/)?.[1];
   apply.disabled=true;apply.setAttribute('aria-busy','true');status.textContent='Updating printing…';
   try{
    const deadline=Date.now()+10000,seen=new Set(),candidates=[printing,...(tokenPrinting?[]:alternatives)].filter(candidate=>{const key=String(candidate.set||'').toLowerCase()+'|'+String(candidate.collectorNumber);if(seen.has(key))return false;seen.add(key);return true;});let result,applied=printing,lastError;
    for(let index=0;index<candidates.length;index++){
-    if(Date.now()>=deadline)throw new Error('Printing update timed out after 10 seconds. No further artwork printings were tried. Close the menu to refresh and check the deck before retrying.');
+    if(Date.now()>=deadline)throw new Error('Printing update timed out after 10 seconds. No further artwork printings were tried. Check the deck before retrying; use Refresh now if needed.');
     const candidate=candidates[index];try{result=await globalThis.MoxDecks.changePrinting(source,candidate,undefined,stage=>{status.textContent=index?`Trying another printing of this artwork… ${stage}...`:stage+"...";},deadline);applied=candidate;break;}
     catch(error){lastError=error;if(!/could not be matched on Moxfield/i.test(error.message)||index===candidates.length-1)throw error;status.textContent=`${candidate.set} #${candidate.collectorNumber} could not be matched; trying another printing of this artwork…`;}
    }
    if(!result)throw lastError||new Error('No matching printing was found on Moxfield.');
-   if(!result.alreadySelected)noteDeckChanged(true);const actual=result.printing||{set:applied.set,collectorNumber:applied.collectorNumber};const changedCandidate=String(actual.set).toLowerCase()!==String(printing.set).toLowerCase()||String(actual.collectorNumber)!==String(printing.collectorNumber);
+   if(!result.alreadySelected)noteDeckChanged(true,result.deck?.publicId||updateDeckID);const actual=result.printing||{set:applied.set,collectorNumber:applied.collectorNumber};const changedCandidate=String(actual.set).toLowerCase()!==String(printing.set).toLowerCase()||String(actual.collectorNumber)!==String(printing.collectorNumber);
    status.textContent=changedCandidate?`The requested printing was unavailable; used ${actual.set} #${actual.collectorNumber} from the same artwork.`:result.alreadySelected?'This printing is already selected.':`Updated ${result.quantity} ${result.quantity===1?'copy':'copies'} in ${result.deck.name}.`;apply.textContent=result.alreadySelected?'Selected':'✓ Selected';apply.setAttribute('data-state','added');onSelected?.(actual,result);
   }
-  catch(error){status.textContent=error.message;printOnly.hidden=!globalThis.MoxPrintPreferences;if(/HTTP 400/i.test(error.message))status.textContent+=' You can use this edition for print instead. Existing Print artworkwork is retained until you explicitly replace it.';if(/may be incomplete|result unknown|timed out|did not respond/i.test(error.message))noteDeckChanged(true);if(/could not be matched on Moxfield/i.test(error.message)){apply.disabled=true;apply.textContent='Unavailable on Moxfield';apply.setAttribute('data-state','unavailable');apply.title='Moxfield could not match this exact printing; it cannot be applied.';printOnly.hidden=!globalThis.MoxPrintPreferences;}else apply.disabled=false;}
+  catch(error){status.textContent=error.message;printOnly.hidden=!globalThis.MoxPrintPreferences;if(/HTTP 400/i.test(error.message))status.textContent+=' You can use this edition for print instead. Existing Print artworkwork is retained until you explicitly replace it.';if(/may be incomplete|result unknown|timed out|did not respond/i.test(error.message))noteDeckChanged(true,updateDeckID);if(/could not be matched on Moxfield/i.test(error.message)){apply.disabled=true;apply.textContent='Unavailable on Moxfield';apply.setAttribute('data-state','unavailable');apply.title='Moxfield could not match this exact printing; it cannot be applied.';printOnly.hidden=!globalThis.MoxPrintPreferences;}else apply.disabled=false;}
   finally{apply.setAttribute('aria-busy','false');}
  });
  if(tokenPrinting)printOnly.textContent='Use print-only artwork';
@@ -468,7 +480,7 @@ async function fillRequirementMatches({candidates,hasDetails,attempted,load,coun
  return {checked,matches:count(),cancelled:!isCurrent()};
 }
 function exclusiveExplorerMenus(controls){
- const menus=[...controls.querySelectorAll('details')],group='lemfield-explorer-'+crypto.randomUUID();
+ const menus=[...controls.querySelectorAll('details')],group='moxfield-plus-explorer-'+crypto.randomUUID();
  for(const menu of menus)menu.setAttribute('name',group);
  const closeOthers=event=>{const active=event.target.closest('details');for(const menu of menus)if(menu!==active&&menu.open)menu.open=false;};
  for(const event of ['pointerdown','focusin','click'])controls.addEventListener(event,closeOthers);
@@ -497,6 +509,12 @@ function advanced(view,data){
  search.type='search';search.placeholder='Search names, rules, types, or tags';search.setAttribute('aria-label','Search cards');
  const exclude=el('input');exclude.type='checkbox';exclude.checked=true;
  const excludeLabel=el('label');excludeLabel.append(exclude,document.createTextNode(' Hide cards already in deck'));
+ const selectedManaColors=new Set(),manaColors=el('div',null,'edh-mana-colors'),manaMatch=el('button'),manaMatchLabel=el('span','Inclusive');
+ manaColors.setAttribute('role','group');manaColors.setAttribute('aria-label','Filter color identity');
+ manaMatch.type='button';manaMatch.value='inclusive';manaMatch.className='edh-color-match-switch';manaMatch.setAttribute('role','switch');manaMatch.setAttribute('aria-checked','false');manaMatch.setAttribute('aria-label','Exclusive color matching');manaMatch.title='Off: include any selected color, allowing others. On: match exactly the selected color identity.';manaMatch.append(el('span',null,'edh-color-switch-track'),manaMatchLabel);
+ const colorButtons=[];for(const [value,name] of [['W','White'],['U','Blue'],['B','Black'],['R','Red'],['G','Green']]){const chip=button('',()=>{if(selectedManaColors.has(value))selectedManaColors.delete(value);else selectedManaColors.add(value);chip.setAttribute('aria-pressed',String(selectedManaColors.has(value)));manaColorChanged();},'edh-mana-chip edh-mana-'+value);const icon=el('img');icon.src='https://svgs.scryfall.io/card-symbols/'+value+'.svg';icon.alt='';icon.width=26;icon.height=26;icon.referrerPolicy='no-referrer';chip.append(icon);chip.setAttribute('aria-label',name);chip.setAttribute('aria-pressed','false');chip.title=name+' color identity';colorButtons.push(chip);manaColors.append(chip);}manaColors.append(manaMatch);
+ function manaColorChanged(){searchExhausted=false;requirementRun++;clearTimeout(searchTimer);limit=pageSize;render();if(categories.value==='all')loadRequirementResults();}
+ manaMatch.onclick=()=>{manaMatch.value=manaMatch.value==='exclusive'?'inclusive':'exclusive';manaColorChanged();};
  const type=el('select'),typeLine=el('input'),role=el('select'),roleSearch=el('input'),tokenKind=el('input'),tagSearch=el('input'),tag=el('select'),minMana=el('input'),maxMana=el('input'),maxPrice=el('input'),color=el('input');
  type.setAttribute('aria-label','Card type filter');role.setAttribute('aria-label','Card role');tag.setAttribute('aria-label','Card tag filter');
  typeLine.type='search';typeLine.placeholder='Type line or subtype (Goblin, Warrior…)';typeLine.setAttribute('aria-label','Type line or creature subtype');
@@ -557,9 +575,9 @@ function advanced(view,data){
  const detailControls=el('div',null,'edh-details-loader');
  box.modal.classList.add('edh-compact-status');detailControls.append(loadDetails,detailStatus);
  const primaryTools=el('div',null,'edh-explorer-primary'),displayTools=el('div',null,'edh-explorer-preferences'),filterTools=el('div',null,'edh-explorer-filters');
- primaryTools.append(categories,sort,searchMode,search,display);displayTools.append(artChoice,addPrintingLabel,excludeLabel);filterTools.append(type,typeLine,rolePicker.menu,tokenKind,tokenKinds,triggerMenu,keywordMenu,tagPicker.menu,minMana,maxMana,maxPrice,colorLabel);controls.append(primaryTools,displayTools,filterTools,detailControls);exclusiveExplorerMenus(controls);
+ primaryTools.append(categories,sort,searchMode,search,display);displayTools.append(artChoice,addPrintingLabel,excludeLabel,manaColors);filterTools.append(type,typeLine,rolePicker.menu,tokenKind,tokenKinds,triggerMenu,keywordMenu,tagPicker.menu,minMana,maxMana,maxPrice,colorLabel);controls.append(primaryTools,displayTools,filterTools,detailControls);exclusiveExplorerMenus(controls);
  let pageSize=48,searchExhausted=false,searchTarget=0,searchTargetKey='',autoDiscoveryQueued=false,autoDiscoveryStopped=false;const count=el('p',null,'hint'),list=el('ul',null,'edh-cards'),more=button('Show more',()=>{limit+=pageSize;render();if(categories.value==='all'&&!searchExhausted)loadRequirementResults(Math.max(50,limit));});more.setAttribute('aria-expanded','false');count.setAttribute('role','status');
- const discoveryKey=()=>JSON.stringify([search.value,type.value,typeLine.value,role.value,selectedTokenKind(),tag.value,[...selectedTriggers],[...selectedKeywords],minMana.value,maxMana.value,maxPrice.value,color.checked,exclude.checked]);
+ const discoveryKey=()=>JSON.stringify([search.value,type.value,typeLine.value,role.value,selectedTokenKind(),tag.value,[...selectedTriggers],[...selectedKeywords],minMana.value,maxMana.value,maxPrice.value,color.checked,exclude.checked,[...selectedManaColors],manaMatch.value]);
  const categoryType=()=>{const category=(data.categories||[]).find(item=>item.id===categories.value),label=(category?.name||categories.value).toLowerCase();return {creatures:'Creature',instants:'Instant',sorceries:'Sorcery',artifacts:'Artifact',enchantments:'Enchantment',planeswalkers:'Planeswalker',lands:'Land'}[label]||null;};
  const searchMore=button('Find more on Scryfall',()=>{if(categories.value!=='all'){if(!type.value)type.value=categoryType()||'';categories.value='all';}const key=discoveryKey();if(key!==searchTargetKey){searchTarget=0;searchTargetKey=key;}searchExhausted=false;autoDiscoveryStopped=false;searchTarget+=50;limit=Math.max(limit,searchTarget);render();loadRequirementResults(searchTarget);},'compact');
  const layout=el('div',null,'edh-browser-layout'),results=el('div',null,'edh-browser-results'),deck=el('aside',null,'edh-deck-preview');deck.setAttribute('aria-label','Current deck preview');
@@ -569,8 +587,8 @@ function advanced(view,data){
  let similarRows=null,similarLoading=false,similarError='',similarRetry=false;
  const similarDirect=link('Open similar cards on EDHREC','https://edhrec.com/cards/'+E.slug(data.name)+'/similar-cards'),retrySimilar=button('Retry similar cards',()=>{similarRows=null;similarError='';similarRetry=true;render();},'compact');
  similarDirect.hidden=true;retrySimilar.hidden=true;results.insertBefore(similarDirect,list);results.insertBefore(retrySimilar,list);
- const filterCandidates=(candidates,overrides={})=>{const filters={query:searchMode.value==='scryfall'?'':search.value,sort:categories.value==='lift'?'lift':sort.value,type:type.value,typeLine:typeLine.value,role:role.value,tokenKind:selectedTokenKind(),rule:deckRequirementRules.get(role.value),triggers:[...selectedTriggers],keywords:[...selectedKeywords],tag:tag.value,minMana:minMana.value,maxMana:maxMana.value,maxPrice:maxPrice.value,colors:!colorLabel.hidden&&color.checked?deckColors:null,condense:true,excludeBasics:true,exclude:exclude.checked,...overrides};return C.filter(candidates,filters).filter(card=>{const membership=explorerMembership(card,deckNames,addedThisSession);return !filters.exclude||!deckLoading&&(!membership.inDeck||membership.added);});};
- const facetQuery=()=>C.discoveryQuery({tokenKind:selectedTokenKind(),type:type.value,typeLine:typeLine.value,minMana:minMana.value,maxMana:maxMana.value,triggers:[...selectedTriggers],keywords:[...selectedKeywords]});
+ const filterCandidates=(candidates,overrides={})=>{const filters={query:searchMode.value==='scryfall'?'':search.value,sort:categories.value==='lift'?'lift':sort.value,type:type.value,typeLine:typeLine.value,role:role.value,tokenKind:selectedTokenKind(),rule:deckRequirementRules.get(role.value),triggers:[...selectedTriggers],keywords:[...selectedKeywords],tag:tag.value,minMana:minMana.value,maxMana:maxMana.value,maxPrice:maxPrice.value,colors:!colorLabel.hidden&&color.checked?deckColors:null,selectedColors:[...selectedManaColors],colorMatch:manaMatch.value,condense:true,excludeBasics:true,exclude:exclude.checked,...overrides};return C.filter(candidates,filters).filter(card=>{const membership=explorerMembership(card,deckNames,addedThisSession);return !filters.exclude||!deckLoading&&(!membership.inDeck||membership.added);});};
+ const facetQuery=()=>[selectedManaColors.size?(manaMatch.value==='exclusive'?'id='+[...selectedManaColors].join(''):'('+[...selectedManaColors].map(c=>'id:'+c).join(' or ')+')'):'',C.discoveryQuery({tokenKind:selectedTokenKind(),type:type.value,typeLine:typeLine.value,minMana:minMana.value,maxMana:maxMana.value,triggers:[...selectedTriggers],keywords:[...selectedKeywords]})].filter(Boolean).join(' ');
  const updateConflicts=(candidates,rows)=>{
   const fields=[[search,'query',searchMode.value==='text'&&!!search.value.trim(),{query:''}],[type,'type',!!type.value,{type:''}],[typeLine,'typeLine',!!typeLine.value.trim(),{typeLine:''}],[rolePicker.menu,'role',!!role.value,{role:'',rule:null}],[tokenKind,'tokenKind',!!selectedTokenKind(),{tokenKind:''}],[triggerMenu,'triggers',selectedTriggers.size>0,{triggers:[]}],[keywordMenu,'keywords',selectedKeywords.size>0,{keywords:[]}],[tagPicker.menu,'tag',!!tag.value,{tag:''}],[minMana,'minMana',minMana.value!=='',{minMana:''}],[maxMana,'maxMana',maxMana.value!=='',{maxMana:''}],[maxPrice,'maxPrice',maxPrice.value!=='',{maxPrice:''}],[color,'colors',color.checked&&!colorLabel.hidden&&!!deckColors,{colors:null}],[exclude,'deck',exclude.checked&&!deckLoading,{exclude:false}]];
   const conflicting=new Set(),min=minMana.value===''?null:Number(minMana.value),max=maxMana.value===''?null:Number(maxMana.value);
@@ -579,17 +597,22 @@ function advanced(view,data){
   for(const [control] of fields){const bad=conflicting.has(control);control.classList.toggle('edh-filter-conflict',bad);if(bad)control.setAttribute('aria-invalid','true');else control.removeAttribute('aria-invalid');}
   conflictHint.hidden=!conflicting.size;conflictHint.textContent=conflicting.size?'Red filters conflict with each other or exclude every available card. Adjust one to see results.':'';
  };
+ const highlightExplorerFilters=()=>{
+  manaMatch.setAttribute('aria-checked',String(manaMatch.value==='exclusive'));manaMatchLabel.textContent=manaMatch.value==='exclusive'?'Exclusive':'Inclusive';
+  const states=[[categories,categories.value!=='all'],[sort,sort.value!=='inclusion'],[searchMode,searchMode.value!=='text'],[search,!!search.value.trim()],[display,display.value!=='art'],[artChoice,artChoice.value!=='most'],[type,!!type.value],[typeLine,!!typeLine.value.trim()],[rolePicker.menu,!!role.value],[tagPicker.menu,!!tag.value],[triggerMenu,selectedTriggers.size>0],[keywordMenu,selectedKeywords.size>0],[tokenKind,!!selectedTokenKind()],[minMana,minMana.value!==''],[maxMana,maxMana.value!==''],[maxPrice,maxPrice.value!==''],[colorLabel,color.checked&&!color.disabled],[addPrintingLabel,addPrinting.checked],[excludeLabel,exclude.checked]];
+  for(const [node,active] of states)node.classList.toggle('edh-filter-active',active);
+ };
  let availableTags=[];const tileCache=new Map();
  const updateTagOptions=()=>{const selected=tag.value,term=tagSearch.value.trim().toLowerCase(),matching=availableTags.filter(value=>value.toLowerCase().includes(term));tag.replaceChildren();options(tag,[['','All card tags'],...(selected&&!matching.includes(selected)?[[selected,selected+' (selected)']]:[]),...matching.map(value=>[value,value])]);tag.value=selected;if(tag.selectedIndex<0)tag.value='';tagPicker.sync();};
  const render=()=>{
   if(searchMode.value!=='scryfall'&&categories.value==='similar'&&similarRows===null&&!similarLoading){similarLoading=true;const retry=similarRetry;similarRetry=false;browser.runtime.sendMessage({type:'mrd-similar-edhrec',slug:E.slug(data.name),retry}).then(result=>{similarRows=result?.cards||[];similarError=result?.ok?'':result?.error||'Similar cards unavailable.';similarLoading=false;if(box.modal.isConnected)render();}).catch(()=>{similarRows=[];similarLoading=false;similarError='Similar cards unavailable.';if(box.modal.isConnected)render();});}
-  view.edhrecAddContext={edhrecNames,searchMode:searchMode.value,filterScore:edhrecFilterScore({query:search.value,role:role.value,type:type.value,typeLine:typeLine.value,tag:tag.value,triggers:[...selectedTriggers],keywords:[...selectedKeywords],minMana:minMana.value,maxMana:maxMana.value,maxPrice:maxPrice.value})};
+  view.edhrecAddContext={edhrecNames,searchMode:searchMode.value,filterScore:(selectedManaColors.size?2:0)+edhrecFilterScore({query:search.value,role:role.value,type:type.value,typeLine:typeLine.value,tag:tag.value,triggers:[...selectedTriggers],keywords:[...selectedKeywords],minMana:minMana.value,maxMana:maxMana.value,maxPrice:maxPrice.value})};
   refreshEdhrecBanners();syncTokenKind();rolePicker.sync();
   colorLabel.hidden=explorerUsesCommanderScope(data,deckCommanders,categories.value);
   const source=searchMode.value==='scryfall'?{allCards:[...scryfallRows.values()]}:categories.value==='similar'?{allCards:similarRows||[]}:combinedData();
   const candidates=E.browse(source,{category:searchMode.value==='scryfall'||categories.value==='similar'?'all':categories.value,sort:sort.value,query:''}).map(explorerCard);
-  availableTags=[...new Set(candidates.flatMap(C.tags))].sort();updateTagOptions();updateKeywordOptions(candidates);
-  const rows=filterCandidates(candidates);updateConflicts(candidates,rows);clearFilters.hidden=!(search.value||type.value||typeLine.value||role.value||selectedTriggers.size||selectedKeywords.size||tag.value||minMana.value!==''||maxMana.value!==''||maxPrice.value!==''||color.checked||roleSearch.value||tagSearch.value||triggerSearch.value||keywordSearch.value);
+  availableTags=[...new Set(candidates.flatMap(C.tags))].sort();updateTagOptions();updateKeywordOptions(candidates);highlightExplorerFilters();
+  const rows=filterCandidates(candidates);updateConflicts(candidates,rows);clearFilters.hidden=!(selectedManaColors.size||search.value||type.value||typeLine.value||role.value||selectedTriggers.size||selectedKeywords.size||tag.value||minMana.value!==''||maxMana.value!==''||maxPrice.value!==''||color.checked||roleSearch.value||tagSearch.value||triggerSearch.value||keywordSearch.value);
   const broadType=categoryType();if(categories.value!=='all'&&broadType&&(!type.value||type.value===broadType)&&rows.length<pageSize&&facetQuery()&&!deckLoading&&!loadingDetails&&!similarLoading&&!searchExhausted){type.value=broadType;categories.value='all';render();return;}
   deck._selectedRequirementId=role.value.startsWith('deck:')?role.value.slice(5):null;
   for(const control of deck.querySelectorAll('[data-requirement-id]'))control.setAttribute('aria-pressed',String(role.value==='deck:'+control.dataset.requirementId));
@@ -601,7 +624,7 @@ function advanced(view,data){
   searchMore.hidden=searchMode.value==='scryfall'||!(type.value||typeLine.value.trim()||selectedTriggers.size||selectedKeywords.size||minMana.value!==''||maxMana.value!==''||role.value);searchMore.disabled=loadingDetails||deckLoading||searchExhausted;searchMore.textContent=loadingDetails?'Searching Scryfall...':searchExhausted?'No more Scryfall matches':'Find more on Scryfall';
   more.hidden=searchMode.value==='scryfall'&&!search.value.trim()||limit>=rows.length&&(categories.value!=='all'||searchExhausted);more.disabled=loadingDetails||deckLoading;more.textContent=loadingDetails?'Loading...':'Show more';more.setAttribute('aria-expanded',String(limit>pageSize));categories.disabled=searchMode.value==='scryfall';sort.disabled=categories.value==='lift';similarDirect.hidden=categories.value!=='similar';retrySimilar.hidden=categories.value!=='similar'||!similarError;
  };
- const clearFilters=button('Clear search filters',()=>{requirementRun++;searchExhausted=false;scryfallRows.clear();categories.value='all';search.value='';type.value='';typeLine.value='';role.value='';roleSearch.value='';tokenKind.value='';updateRoleOptions();selectedTriggers.clear();for(const input of triggerInputs)input.checked=false;triggerSearch.value='';filterTriggerChoices();updateTriggerSummary();selectedKeywords.clear();for(const input of keywordInputs.values())input.checked=false;keywordSearch.value='';filterKeywordChoices();updateKeywordSummary();tagSearch.value='';tag.value='';minMana.value='';maxMana.value='';maxPrice.value='';color.checked=false;pageSize=48;limit=pageSize;render();},'compact');clearFilters.hidden=true;results.insertBefore(clearFilters,list);
+ const clearFilters=button('Clear search filters',()=>{selectedManaColors.clear();manaMatch.value='inclusive';for(const chip of colorButtons)chip.setAttribute('aria-pressed','false');requirementRun++;searchExhausted=false;scryfallRows.clear();categories.value='all';search.value='';type.value='';typeLine.value='';role.value='';roleSearch.value='';tokenKind.value='';updateRoleOptions();selectedTriggers.clear();for(const input of triggerInputs)input.checked=false;triggerSearch.value='';filterTriggerChoices();updateTriggerSummary();selectedKeywords.clear();for(const input of keywordInputs.values())input.checked=false;keywordSearch.value='';filterKeywordChoices();updateKeywordSummary();tagSearch.value='';tag.value='';minMana.value='';maxMana.value='';maxPrice.value='';color.checked=false;pageSize=48;limit=pageSize;render();},'compact');clearFilters.hidden=true;results.insertBefore(clearFilters,list);
  let searchTimer=null;box.modal.addEventListener('close',()=>{requirementRun++;clearTimeout(searchTimer);delete view.edhrecAddContext;});
  async function loadRequirementResults(target=50){
   const run=++requirementRun,selectedRole=role.value,baseQuery=searchMode.value==='scryfall'?search.value.trim():'',filters=facetQuery(),queryOverride=baseQuery&&baseQuery.length+filters.length+1>500?baseQuery:[baseQuery,filters,'-t:basic'].filter(Boolean).join(' ');
@@ -893,11 +916,11 @@ function setNativePrintArt(image,choice,url){
  if(!choice){if(image.dataset.mrdPrintArtId){if(image.dataset.mrdOriginalStyle!==undefined){if(image.dataset.mrdOriginalStyle)image.setAttribute('style',image.dataset.mrdOriginalStyle);else image.removeAttribute('style');delete image.dataset.mrdOriginalStyle;}image.src=image.dataset.mrdOriginalSrc||image.src;image.srcset=image.dataset.mrdOriginalSrcset||'';image.title=image.dataset.mrdOriginalTitle||'';for(const source of picture?.querySelectorAll('source')||[]){source.srcset=source.dataset.mrdOriginalSrcset||'';delete source.dataset.mrdOriginalSrcset;}delete image.dataset.mrdPrintArtId;delete image.dataset.mrdOriginalSrc;delete image.dataset.mrdOriginalSrcset;delete image.dataset.mrdOriginalTitle;}badge?.remove();return;}
  if(image.dataset.mrdShowOriginal===choice.printingId)return;if(image.dataset.mrdShowOriginal)delete image.dataset.mrdShowOriginal;
  if(image.dataset.mrdPrintArtId!==choice.printingId||image.src!==url||image.srcset){if(image.dataset.mrdOriginalStyle!==undefined){if(image.dataset.mrdOriginalStyle)image.setAttribute('style',image.dataset.mrdOriginalStyle);else image.removeAttribute('style');delete image.dataset.mrdOriginalStyle;}if(!image.dataset.mrdOriginalSrc){image.dataset.mrdOriginalSrc=image.src;image.dataset.mrdOriginalSrcset=image.srcset||'';image.dataset.mrdOriginalTitle=image.title||'';for(const source of picture?.querySelectorAll('source')||[]){source.dataset.mrdOriginalSrcset=source.srcset||'';}}for(const source of picture?.querySelectorAll('source')||[])source.srcset='';image.srcset='';image.src=url;image.dataset.mrdPrintArtId=choice.printingId;image.dataset.mrdPrintArtName=image.alt;}
- const label='Print artwork';image.title=label;if(badge)return;
+ image.dataset.mrdPrintArtUrl=url;const label='Print artwork';image.title=label;if(badge)return;
  if(parent){if(getComputedStyle(parent).position==='static')parent.style.position='relative';const marker=el('details',null,'mrd-print-art-badge'),summary=el('summary','Print art'),panel=el('div');
  Object.assign(marker.style,{position:'absolute',left:'5px',bottom:'5px',zIndex:'20',font:'500 11px/1.35 system-ui,sans-serif',color:'#fff',maxWidth:'calc(100% - 10px)'});Object.assign(summary.style,{cursor:'pointer',padding:'3px 6px',background:'#542e6be6',border:'1px solid #ba91d0',borderRadius:'4px',listStyle:'none',width:'max-content'});summary.setAttribute('aria-label','Print artwork options');
  Object.assign(panel.style,{position:'absolute',bottom:'100%',left:'0',width:'300px',maxWidth:'min(300px,85vw)',boxSizing:'border-box',padding:'9px',background:'#29232f',border:'1px solid #ba91d0',borderRadius:'5px',boxShadow:'0 3px 12px #0008'});panel.append(el('p','This artwork is used for printing only. Moxfield keeps a different printing.'));
- const original=button('Show original',event=>{event?.preventDefault?.();const show=!image.dataset.mrdShowOriginal;for(const target of parent.querySelectorAll('img'))if(target.dataset.mrdPrintArtId){if(show){target.dataset.mrdShowOriginal=target.dataset.mrdPrintArtId;target.src=target.dataset.mrdOriginalSrc||target.src;}else{delete target.dataset.mrdShowOriginal;target.src=url;}}original.textContent=show?'Show print artwork':'Show original';},'compact');
+ const original=button('Show original',event=>{event?.preventDefault?.();const show=!image.dataset.mrdShowOriginal;for(const target of parent.querySelectorAll('img'))if(target.dataset.mrdPrintArtId){if(show){target.dataset.mrdShowOriginal=target.dataset.mrdPrintArtId;target.src=target.dataset.mrdOriginalSrc||target.src;}else{delete target.dataset.mrdShowOriginal;target.src=target.dataset.mrdPrintArtUrl||url;}}original.textContent=show?'Show print artwork':'Show original';},'compact');
  const remove=button('Remove print artwork',async()=>{remove.disabled=true;try{const deck=await globalThis.MoxDecks.current();if(!deck?.id)throw Error('Open the deck first.');await globalThis.MoxPrintPreferences.clear(deck.id,choice);await browser.storage.local.remove('mrd_uploaded_art_v1:'+globalThis.MoxPrintPreferences.key(deck.id,choice));for(const target of parent.querySelectorAll('img')){delete target.dataset.mrdShowOriginal;if(target.dataset.mrdPrintArtId)setNativePrintArt(target,null);}marker.remove();schedule();}catch(error){panel.append(el('p',error.message));remove.disabled=false;}},'compact');
  for(const control of [original,remove]){Object.assign(control.style,{appearance:'none',display:'inline-flex',alignItems:'center',justifyContent:'center',minHeight:'30px',padding:'5px 9px',margin:'3px 4px 0 0',border:'1px solid #805594',borderRadius:'4px',background:'#493257',color:'#e4c7f2',font:'500 12px/1.35 system-ui,sans-serif',cursor:'pointer'});control.addEventListener('mouseenter',()=>{control.style.background='#65437a';control.style.borderColor='#ba91d0';});control.addEventListener('mouseleave',()=>{control.style.background='#493257';control.style.borderColor='#805594';});control.addEventListener('focus',()=>{control.style.outline='2px solid #c59bdf';control.style.outlineOffset='2px';});control.addEventListener('blur',()=>{control.style.outline='';control.style.outlineOffset='';});}const actions=el('div');Object.assign(actions.style,{display:'flex',gap:'6px',flexWrap:'nowrap'});for(const control of [original,remove])Object.assign(control.style,{flex:'1 1 auto',margin:'0',whiteSpace:'nowrap'});actions.append(original,remove);panel.append(actions);marker.append(summary,panel);marker.addEventListener('mouseenter',()=>{marker.open=true;});marker.addEventListener('mouseleave',()=>{if(!marker.contains(document.activeElement))marker.open=false;});marker.addEventListener('click',event=>event.stopPropagation());parent.append(marker);}
 
@@ -917,7 +940,7 @@ async function applyDeckSavedPrintArt(){
     const entries=displayCards.filter(card=>card.id===id),saved=entries.map(card=>{try{return (()=>{const choice=choices.get(globalThis.MoxPrintPreferences.key(deck.id,card));return sameDeckPrinting(card,choice)?null:choice;})();}catch{return null;}}),choice=saved.length&&saved.every(value=>value?.printingId===saved[0]?.printingId)?saved[0]:null;
     if(!choice){for(const image of wrapper.querySelectorAll('img.deckview-image'))setNativePrintArt(image,null);continue;}
     const result=await requestCardDetails(choice.name,choice.printingId);if(!result?.ok||!result.url||!wrapper.isConnected||front.src!==snapshot)continue;
-    for(const image of wrapper.querySelectorAll('img.deckview-image'))setNativePrintArt(image,choice,result.url);
+    const faceImages=[...wrapper.querySelectorAll('img.deckview-image')];for(let index=0;index<faceImages.length;index++){const image=faceImages[index],original=image.dataset.mrdOriginalSrc||image.src,isBack=/\/back\//i.test(original)||/-(?:back|reverse)(?:-|\.)/i.test(original)||index===1;const url=isBack?result.printFaces?.[1]:result.printFaces?.[0]||result.url;if(url)setNativePrintArt(image,choice,url);else setNativePrintArt(image,null);}
    }
    const selected=new Map(),ambiguous=new Set();
    for(const card of displayCards){if(!card.section)continue;let choice;try{choice=choices.get(globalThis.MoxPrintPreferences.key(deck.id,card));if(sameDeckPrinting(card,choice))choice=null;}catch{continue;}const name=card.name?.normalize('NFKC').trim().toLowerCase();if(!name)continue;if(selected.has(name)&&selected.get(name)?.printingId!==choice?.printingId)ambiguous.add(name);else selected.set(name,choice||null);}

@@ -7,6 +7,7 @@ const type=pattern=>criterion('type','regex',pattern);
 const mana=(op,n)=>criterion('manaValue',op,String(n));
 // These heuristic roles inspect Oracle text rather than relying on a fixed card list.
 // Templates are editable; users can adjust false positives with manual exclusions.
+const legacyRampPattern="add \\{|add (one|two|three|[a-z ]+) mana|search your library for (a|up to [^ ]+ )?(basic )?land|put (a|that|those) lands? [^\\n]{0,60} onto the battlefield|create [^\\n]{0,30}treasure token";
 const library=[
  ['Interaction','spot','Spot removal',10,[oracle('destroy target|exile target|damage to (any )?target|deals? [^\\n]{0,65} damage to target|return target [^\\n]{0,45} to (its owner.s )?hand|target creature gets -[0-9x]')]],
  ['Interaction','wipes','Board wipes',3,[oracle('destroy all|exile all|each creature gets -|all creatures get -|deals? [^\\n]{0,65} damage to each creature|deals? [^\\n]{0,65} damage to all creatures|each player sacrifices [^\\n]{0,40}creature')]],
@@ -22,7 +23,7 @@ const library=[
  ['Cards','recursion','Recursion',4,[oracle('return target [^\\n]{0,55} from your graveyard to (your hand|the battlefield)|put target [^\\n]{0,40} from (a|your) graveyard onto the battlefield|cast [^\\n]{0,55} from your graveyard|you may cast [^\\n]{0,50} from your graveyard')]],
  ['Cards','discard','Discard outlets',3,[oracle('discard (a|one|two|[0-9x]+) cards?|discard your hand|discard a card:')]],
  ['Cards','wheel','Wheel effects',2,[oracle('each player discards (their hand|his or her hand)|discard your hand, then draw|each player (shuffles|draws) [^\\n]{0,60} cards')]],
- ['Mana','ramp','Ramp',10,[oracle('add \\{|add (one|two|three|[a-z ]+) mana|search your library for (a|up to [^ ]+ )?(basic )?land|put (a|that|those) lands? [^\\n]{0,60} onto the battlefield|create [^\\n]{0,30}treasure token')]],
+ ['Mana','ramp','Ramp',10,[oracle("adds? (?:an additional )?(?:\\{|[a-z ]+ mana)|(?:land|forest|plains|island|swamp|mountain|desert)s?[^.\\n]{0,100}(?:\\. [^.\\n]{0,100})? (?:onto|to) the battlefield|play (?:an?|one|two|three|that many|[0-9]+) additional lands?|create [^\\n]{0,30}treasure token")]],
  ['Mana','mana-rocks','Mana rocks',6,[type('artifact'),oracle('\\{T\\}: Add|add \\{|add one mana of any color|add [a-z]+ mana')]],
  ['Mana','mana-dorks','Mana creatures',4,[type('creature'),oracle('\\{T\\}: Add|add \\{|add one mana of any color')]],
  ['Mana','lands','Lands',32,[type('land')]],
@@ -104,7 +105,7 @@ function normalizeDeck(data){
  return result;
 }
 const regexCache=new Map();
-const builtInPatterns=new Set(presetLibrary.flatMap(rule=>rule.criteria.filter(c=>c.op==='regex').map(c=>c.value)));
+const builtInPatterns=new Set([legacyRampPattern,...presetLibrary.flatMap(rule=>rule.criteria.filter(c=>c.op==='regex').map(c=>c.value))]);
 const reservedKey=key=>['__proto__','constructor','prototype'].includes(key);
 const safeID=id=>typeof id==='string'&&id.length>0&&id.length<=120&&!reservedKey(id);
 const dictionary=value=>Object.assign(Object.create(null),value||{});
@@ -166,7 +167,7 @@ const nativeRoleSearch={
  draw:'(o:"draw" o:"card")',selection:'o:"scry" or o:"surveil" or (o:"look at the top" o:"your library") or (o:"reveal the top" o:"your library") or o:"impulse draw"',
  tutors:'o:"search your library for"',recursion:'(o:"return target" o:"from your graveyard") or (o:"put target" o:"graveyard" o:"battlefield") or (o:"cast" o:"from your graveyard")',
  discard:'(o:"discard" o:"card") or o:"discard your hand"',wheel:'o:"each player discards their hand" or o:"each player discards his or her hand" or o:"discard your hand, then draw" or (o:"each player" o:"cards" o:"draws") or (o:"each player shuffles" o:"cards")',
- ramp:'o:"add {" or (o:"add" o:"mana") or (o:"search your library" o:"land") or (o:"put" o:"land" o:"onto the battlefield") or (o:"create" o:"treasure token")',
+ ramp:'o:"add {" or (o:"add" o:"mana") or (o:"search your library" o:"land") or (o:"put" o:"land" o:"onto the battlefield") or (o:"create" o:"treasure token") or (o:"additional land" o:"play") or ((o:"forest" or o:"plains" or o:"island" or o:"swamp" or o:"mountain" or o:"desert") o:"battlefield")',
  'mana-rocks':'o:"{T}: Add" or o:"add {" or o:"add one mana of any color" or (o:"add" o:"mana")',
  'mana-dorks':'o:"{T}: Add" or o:"add {" or o:"add one mana of any color"',
  fixing:'o:"add one mana of any color" or o:"add one mana of any type" or o:"add mana of any color" or (o:"search your library for a" o:"land card")',
@@ -271,9 +272,16 @@ function sanitizeSettings(value,strict=false){
   profiles.push({id:p.id,name:String(p.name||'Profile').slice(0,80),rules});
  }
  if(profiles.length)result.profiles=profiles;
- // Migrate only unchanged legacy ramp rules, preserving custom conditions.
- if(!input.schemaVersion)for(const p of result.profiles)for(const r of p.rules){
-  if((r.id==='ramp'||r.presetId==='ramp')&&r.criteria.length===1&&r.criteria[0].value===ramp.criteria[0].value){r.logic='all';r.criteria.push(copy(ramp.criteria[1]));}
+ // Refresh unchanged built-in ramp criteria, including saved per-deck profiles.
+ // Targets, IDs, manual overrides and customized criteria remain intact.
+ for(const p of result.profiles)for(const r of p.rules){
+  if(r.id!=='ramp'&&r.presetId!=='ramp')continue;
+  const [text,excludeLand]=r.criteria;
+  const legacyText=text?.field==='oracle'&&text.op==='regex'&&!text.negate&&text.value===legacyRampPattern;
+  const legacyLand=excludeLand?.field==='type'&&excludeLand.op==='regex'&&excludeLand.value==='land'&&excludeLand.negate===true;
+  if(legacyText&&((r.criteria.length===2&&r.logic==='all'&&legacyLand)||(r.criteria.length===1&&!input.schemaVersion))){
+   r.criteria=copy(ramp.criteria);r.logic='all';
+  }
  }
  // Add a conservative land baseline once to existing built-in profiles.
  // Custom profiles, edited land targets, and subsequent deliberate deletions stay intact.

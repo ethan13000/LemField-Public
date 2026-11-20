@@ -65,6 +65,8 @@ const root=path.resolve(__dirname,'..');
  const writes=calls.filter(c=>c.options.method==='POST').length;
  result=await command({...add,printing:{set:'sld',collectorNumber:'999',scryfallId:'missing'}});assert.equal(result.ok,false);assert.match(result.error,/selected printing/);
  assert.equal(calls.filter(c=>c.options.method==='POST').length,writes,'Missing printing never adds a preferred replacement');
+ result=await command({...add,quantity:20});assert.equal(result.ok,true);assert.equal(JSON.parse(calls.findLast(c=>c.options.method==='POST').options.body).quantity,20);
+ for(const quantity of [0,-1,1.5,1000]){const before=calls.filter(c=>c.options.method==='POST').length;result=await command({...add,quantity});assert.equal(result.ok,false);assert.equal(calls.filter(c=>c.options.method==='POST').length,before);}
  mode='post500';result=await command(add);assert.match(result.error,/result unknown/);mode='badJSON';result=await command(add);assert.match(result.error,/result unknown/);
  const beforeSlow=calls.filter(c=>c.options.method==='POST').length;mode='slow';result=await command({...add,printing:{set:'sld',collectorNumber:'123',scryfallId:'missing'}});assert.match(result.error,/timed out/);assert.equal(calls.filter(c=>c.options.method==='POST').length,beforeSlow,'No delayed write after action deadline');
  assert(!JSON.stringify(replies).includes('session-secret'));

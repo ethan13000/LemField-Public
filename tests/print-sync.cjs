@@ -3,7 +3,7 @@ const source=fs.readFileSync(require.resolve('../print-sync.js'),'utf8');
 const copy=value=>structuredClone(value),cloud={},devices=[];let clock=10000,failSync=false,failWrites=false;
 const key='mrd_print_edition_v1:deckA:'+encodeURIComponent(JSON.stringify(['tokens','treasure'])),quantity='mrd_token_quantity:'+key;
 const choice=(number,time=100)=>({version:1,name:'Treasure',section:'tokens',printingId:'00000000-0000-4000-8000-'+String(number).padStart(12,'0'),set:'tset',collectorNumber:String(number),selectedAt:time});
-function device(name,initial={},noSync=false){
+function device(name,initial={},noSync=false,chromium=false){
  const values=copy(initial),handlers=[],messages=[],timers=new Map();let next=0;
  const emit=(changes,area)=>handlers.forEach(fn=>fn(copy(changes),area));
  const area=(storage,kind)=>({
@@ -12,8 +12,9 @@ function device(name,initial={},noSync=false){
   async remove(keys){const changes={};for(const k of Array.isArray(keys)?keys:[keys]){if(Object.hasOwn(storage,k)){changes[k]={oldValue:storage[k]};delete storage[k];}}if(Object.keys(changes).length)emit(changes,kind);}
  });
  const local=area(values,'local'),sync=noSync?undefined:area(cloud,'sync');
- const context={browser:{storage:{local,sync,onChanged:{addListener:fn=>handlers.push(fn)}},runtime:{onMessage:{addListener:fn=>messages.push(fn)}}},crypto:{randomUUID:()=>name},Date:class extends Date{static now(){return clock;}},setTimeout:fn=>{timers.set(++next,fn);return next;},clearTimeout:id=>timers.delete(id)};
- const d={values,local,emit,context,send:async(action,extra={})=>messages[0]({type:'mrd-print-sync',action,...extra}),sync:async()=>{const r=await d.send('now');assert.equal(r.ok,true,r.error);return r.status;}};devices.push(d);vm.runInNewContext(source,context);return d;
+ const context={browser:{permissions:{getAll:async()=>({data_collection:d.consent?['technicalAndInteraction']:[]})},storage:{local,sync,onChanged:{addListener:fn=>handlers.push(fn)}},runtime:{onMessage:{addListener:fn=>messages.push(fn)}}},crypto:{randomUUID:()=>name},Date:class extends Date{static now(){return clock;}},setTimeout:fn=>{timers.set(++next,fn);return next;},clearTimeout:id=>timers.delete(id)};
+ if(chromium){context.MoxChromium=true;delete context.browser.permissions;}
+ const d={consent:true,values,local,emit,context,send:async(action,extra={})=>messages[0]({type:'mrd-print-sync',action,...extra}),sync:async()=>{const r=await d.send('now');assert.equal(r.ok,true,r.error);return r.status;}};devices.push(d);vm.runInNewContext(source,context);return d;
 }
 (async()=>{
  const a=device('A',{[key]:choice(1),[quantity]:3,mrd_uploaded_art_v1:'private-image',authorization:'secret'});await a.sync();
@@ -35,11 +36,19 @@ function device(name,initial={},noSync=false){
  failWrites=true;clock++;await a.local.set({[quantity]:9});const failed=await a.sync();assert.equal(failed.state,'error');assert.match(failed.message,/QUOTA_BYTES/);assert.equal(a.values[quantity],9,'Quota failure retains local settings');failWrites=false;await a.sync();await b.sync();assert.equal(b.values[quantity],9,'Retry sends retained edits');
  clock++;a.beforeCloudRead=()=>a.local.set({[key]:choice(8,clock)});await a.sync();assert.equal(a.values[key].collectorNumber,'8','A concurrent user edit survives a pending cloud read');await a.sync();await b.sync();assert.equal(b.values[key].collectorNumber,'8');
  // A backup on the Moxfield origin must not resurrect a remotely cleared choice.
- const site=new Map([['lemfield_print_backup_v1:'+key,JSON.stringify(choice(1))]]),localStorage={get length(){return site.size;},key:i=>[...site.keys()][i],getItem:k=>site.get(k),setItem:(k,v)=>site.set(k,v),removeItem:k=>site.delete(k)};
+ const site=new Map([['moxfield-plus_print_backup_v1:'+key,JSON.stringify(choice(1))]]),localStorage={get length(){return site.size;},key:i=>[...site.keys()][i],getItem:k=>site.get(k),setItem:(k,v)=>site.set(k,v),removeItem:k=>site.delete(k)};
  clock++;await a.local.remove(key);await a.sync();a.context.location={origin:'https://moxfield.com'};a.context.localStorage=localStorage;
  vm.runInNewContext(fs.readFileSync(require.resolve('../print-preferences.js'),'utf8'),a.context);assert.equal((await a.context.MoxPrintPreferences.read('deckA')).size,0,'Site backup respects sync tombstones');
  const variantKey='mrd_print_edition_v1:deckA:'+encodeURIComponent(JSON.stringify(['tokens','treasure','variant-a'])),otherKey='mrd_print_edition_v1:deckA:'+encodeURIComponent(JSON.stringify(['tokens','treasure','variant-b']));
  clock++;await a.local.set({[variantKey]:{...choice(9,clock),tokenSourceId:'variant-a'},[otherKey]:{...choice(10,clock),tokenSourceId:'variant-b'},['mrd_token_quantity:'+variantKey]:2,['mrd_token_quantity:'+otherKey]:4});await a.sync();await b.sync();assert.equal(b.values[variantKey].collectorNumber,'9');assert.equal(b.values[otherKey].collectorNumber,'10');assert.equal(b.values['mrd_token_quantity:'+variantKey],2);assert.equal(b.values['mrd_token_quantity:'+otherKey],4);
  const variantBackup=(await a.send('export')).backup;assert(variantBackup.entries[variantKey]);assert.equal((await offline.send('import',{backup:variantBackup})).ok,true,'Variant identities survive backup transfer');
- console.log('PASS: two-device migration, selections/zero quantities, deletion/restart/stale-device protection, offline conflicts and ties, safe backups/imports, quota retry, and site-backup tombstones.');
+ const declined=device('declined',{[key]:choice(99)});declined.consent=false;const cloudBefore=JSON.stringify(cloud);await declined.sync();assert.equal(JSON.stringify(cloud),cloudBefore,'No cloud writes without opt-in');assert.equal(declined.values[key].collectorNumber,'99','No cloud import without opt-in');assert.equal((await declined.send('import',{backup:variantBackup})).ok,true,'Local import works when consent is declined');
+ const chrome=device('chrome',{[key]:choice(90,++clock)},false,true),chromeBefore=JSON.stringify(cloud);
+ assert.equal((await chrome.sync()).state,'error');assert.equal(JSON.stringify(cloud),chromeBefore,'Chrome does not upload before opt-in');assert.equal(chrome.values[key].collectorNumber,'90','Chrome does not import cloud before opt-in');
+ await chrome.local.set({mrd_chrome_print_sync_enabled_v1:true});assert.equal((await chrome.sync()).state,'ready');
+ assert.equal(cloud['lfp1:'+key].value.collectorNumber,'90','Chrome opt-in uploads supported preferences');
+ await chrome.local.set({mrd_chrome_print_sync_enabled_v1:false});const stopped=JSON.stringify(cloud);clock++;await chrome.local.set({[key]:choice(91,clock)});assert.equal((await chrome.sync()).state,'error');assert.equal(JSON.stringify(cloud),stopped,'Chrome disable stops cloud writes');
+ const restartedChrome=device('chrome-restart',chrome.values,false,true);assert.equal((await restartedChrome.sync()).state,'error');assert.equal(restartedChrome.values[key].collectorNumber,'91','Chrome disabled consent survives restart');
+ assert.equal((await restartedChrome.send('import',{backup:variantBackup})).ok,true,'Chrome local import remains available while sync is off');
+ console.log('PASS: two-device migration, selections/zero quantities, deletion/restart/stale-device protection, offline conflicts and ties, safe backups/imports, quota retry, Firefox/Chrome opt-in, disable/restart and site-backup tombstones.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

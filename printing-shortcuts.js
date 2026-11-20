@@ -78,7 +78,7 @@ async function openOriginal(card,beforeOpen=()=>{}){
 }
 globalThis.MoxPrintingShortcuts={cardAt,openOriginal};
 // A recommendation absent from the native page opens its original picker on a card tab.
-if(/^\/cards\//.test(location.pathname)&&new URLSearchParams(location.search||'').get('lemfield-printings')==='original'){
+if(/^\/cards\//.test(location.pathname)&&new URLSearchParams(location.search||'').get('moxfield-plus-printings')==='original'){
  let done=false,observer,timer;
  const attempt=()=>{
   if(done)return;

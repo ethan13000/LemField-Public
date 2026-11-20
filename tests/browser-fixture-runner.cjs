@@ -7,7 +7,7 @@ require('./browser-fixture.cjs');
   for(const viewport of [{width:1440,height:1000},{width:390,height:844},{width:320,height:568},{width:1000,height:500}]){
    const page=await browser.newPage({viewport});
    await page.route('https://moxfield.com/**',route=>route.fulfill({contentType:'text/html',body:fs.readFileSync(require.resolve('./browser-fixture.html'),'utf8')}));
-   await page.goto('https://moxfield.com/lemfield-test-fixture');
+   await page.goto('https://moxfield.com/moxfield-plus-test-fixture');
    await page.waitForFunction(()=>document.querySelector('#test-results').textContent!=='RUNNING');
    const result=JSON.parse(await page.locator('#test-results').textContent());
    if(!result.ok)throw Error(JSON.stringify({viewport,...result}));

@@ -13,7 +13,7 @@ class Element{
 }
 const source=fs.readFileSync(require.resolve('../edhrec.js'),'utf8'),body=new Element('body');body.root=true;
 const el=(tag,text)=>Object.assign(new Element(tag),{textContent:text}),openDialogs=new Set();
-const ctx={el,button:(text,onclick)=>Object.assign(el('button',text),{onclick}),document:{body,activeElement:body},crypto,openDialogs,hideHover:()=>{},cleanArt:()=>{},addedInEDHRECPlus:false,printingChangedInDialog:false,location:{reload:()=>{throw Error('Unexpected reload');}},MoxDashboardStyleURL:'dashboard.css'};
+const ctx={el,button:(text,onclick)=>Object.assign(el('button',text),{onclick}),document:{body,activeElement:body},crypto,openDialogs,hideHover:()=>{},cleanArt:()=>{},addedInEDHRECPlus:false,printingChangedInDialog:false,notifyDeckChanged:()=>{ctx.addedInEDHRECPlus=false;ctx.printingChangedInDialog=false;ctx.refreshNotices=(ctx.refreshNotices||0)+1;},location:{reload:()=>{throw Error('Unexpected reload');}},MoxDashboardStyleURL:'dashboard.css'};
 vm.createContext(ctx);vm.runInContext(source.slice(source.indexOf('let windowHost=null;'),source.indexOf('const artwork=new Map()')),ctx);
 const pageSection=el('section'),launcher=el('span');launcher.attachShadow();pageSection.append(launcher);body.append(pageSection);
 const first=ctx.dialog({host:launcher},'EDHREC Plus'),input=el('input');input.value='Keep my search';first.body.append(input);
@@ -23,9 +23,9 @@ first.modal.close();assert.equal(first.modal.isConnected,false);assert.equal(ope
 let reloads=0;ctx.location.reload=()=>{reloads++;};
 for(const flag of ['addedInEDHRECPlus','printingChangedInDialog']){
  const explorer=ctx.dialog({host:launcher},'Card Explorer'),picker=ctx.dialog({host:launcher},'Add card to deck');
- ctx[flag]=true;const before=reloads;picker.close();
+ ctx[flag]=true;const before=reloads,notices=ctx.refreshNotices||0;picker.close();
  assert.equal(reloads,before,'Closing a nested picker must preserve Explorer without reloading');assert(explorer.modal.open);assert.equal(ctx[flag],true,'Keep pending refresh until the outer window closes');
- explorer.close();assert.equal(reloads,before+1,'Refresh the native deck only after closing the outer window');explorer.close();assert.equal(reloads,before+1,'Closing twice does not reload twice');
+ explorer.close();assert.equal(reloads,before,'Closing the outer window never forces a reload');assert.equal(ctx.refreshNotices,notices+1,'Offer manual refresh after the outer window closes');explorer.close();assert.equal(ctx.refreshNotices,notices+1,'Closing twice does not repeat refresh notices');
 }
 const untouched=ctx.dialog({host:launcher},'Add card to deck'),beforeCancel=reloads;untouched.close();assert.equal(reloads,beforeCancel,'Cancelling without writes never reloads');
 require('../card-search.js');ctx.C=globalThis.MoxCardSearch;

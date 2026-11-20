@@ -1,7 +1,7 @@
 /* Local PDF download: one bounded 300 DPI raster per physical sheet. */
 (()=>{'use strict';
 const enc=new TextEncoder(),bytes=text=>enc.encode(text);
-globalThis.LemFieldPDF={async save(sheets,name,progress){
+globalThis.MoxfieldPlusPDF={async save(sheets,name,progress){
  if(!sheets.length)throw Error('Prepare sheets first.');
  let jpegBytes=0;const maxJPEGBytes=128*1024*1024;
  const objects=[],add=data=>(objects.push(data),objects.length),pages=[];
@@ -13,11 +13,12 @@ globalThis.LemFieldPDF={async save(sheets,name,progress){
   try{
   const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.scale(scale,scale);
   for(const original of sheet.querySelectorAll('img')){
-   const image=new Image();image.crossOrigin='anonymous';image.src=original.src;let timer;try{await Promise.race([image.decode(),new Promise((_,reject)=>{timer=setTimeout(()=>{image.src='';reject(Error('A PDF image timed out. Retry or reduce the export size.'));},20000);})]);}finally{clearTimeout(timer);}
+   const image=new Image();image.crossOrigin='anonymous';image.referrerPolicy='no-referrer';image.src=original.src;let timer;try{await Promise.race([image.decode(),new Promise((_,reject)=>{timer=setTimeout(()=>{image.src='';reject(Error('A PDF image timed out. Retry or reduce the export size.'));},20000);})]);}finally{clearTimeout(timer);}
    const x=parseFloat(original.style.left),y=parseFloat(original.style.top),rounded=sheet.classList.contains('rounded-cards');
    ctx.save();ctx.beginPath();ctx.roundRect(x,y,63,88,rounded?3:0);ctx.clip();ctx.drawImage(image,x,y,63,88);ctx.restore();
    if(sheet.classList.contains('guides')){ctx.strokeStyle='#888';ctx.lineWidth=.15;ctx.setLineDash([1,1]);ctx.beginPath();ctx.roundRect(x,y,63,88,rounded?3:0);ctx.stroke();}
   }
+  if(sheet.classList.contains('guides')){ctx.strokeStyle='#888';ctx.lineWidth=.15;ctx.setLineDash([1,1]);ctx.beginPath();for(const [x1,y1,x2,y2] of globalThis.MoxfieldPlusCutGuides.layout(sheet)){ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);}ctx.stroke();}
   const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.95));if(!blob)throw Error('Could not encode sheet.');
   const jpeg=new Uint8Array(await blob.arrayBuffer());jpegBytes+=jpeg.length;if(jpegBytes>maxJPEGBytes){canvas.width=canvas.height=0;throw Error('PDF exceeds the 128 MB image limit. Export fewer cards or copies.');}const imageId=add([bytes(`<< /Type /XObject /Subtype /Image /Width ${canvas.width} /Height ${canvas.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>\nstream\n`),jpeg,bytes('\nendstream')]);
   canvas.width=canvas.height=0;

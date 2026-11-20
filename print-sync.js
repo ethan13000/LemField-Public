@@ -21,11 +21,19 @@
  const validRecord=(key,r)=>r?.v===1&&Number.isSafeInteger(r.t)&&r.t>0&&typeof r.d==='string'&&r.d.length>0&&r.d.length<=80&&(r.value===null||clean(key,r.value)!==undefined);
  const newer=(a,b)=>!b||a.t>b.t||a.t===b.t&&a.d>b.d||a.t===b.t&&a.d===b.d&&JSON.stringify(a.value)>JSON.stringify(b.value);
  let chain=Promise.resolve(),timer=null;const dirty=new Map();
+ async function requireSyncConsent(){
+  if(globalThis.MoxChromium===true){
+   if((await local.get('mrd_chrome_print_sync_enabled_v1')).mrd_chrome_print_sync_enabled_v1===true)return;
+   throw Error('Print settings sync is off. Enable it in the popup to share printing choices and token quantities through your Chrome account.');
+  }
+  const permissions=await browser.permissions?.getAll?.();
+  if(!permissions?.data_collection?.includes('technicalAndInteraction'))throw Error('Print settings sync is off. Use Enable print settings sync in the popup to opt in. Local export/import is still available.');
+ }
  async function reconcile(){
   const edits=new Map(dirty),values=await local.get(null),device=values[DEVICE]||crypto.randomUUID(),meta=Object.create(null),changes=Object.create(null);
   for(const [key,r] of Object.entries(values[META]||{}))if(identity(key)&&validRecord(key,r))meta[key]=r;
   let remote={},failure=null;
-  try{if(!sync)throw Error('Browser sync is unavailable. Use Export / Import to transfer print settings.');remote=await sync.get(null);}catch(error){failure=error;}
+  try{if(!sync)throw Error('Browser sync is unavailable. Use Export / Import to transfer print settings.');await requireSyncConsent();remote=await sync.get(null);}catch(error){failure=error;}
   const keys=new Set([...Object.keys(values).filter(identity),...Object.keys(meta),...Object.keys(remote).filter(k=>k.startsWith(CLOUD)).map(k=>k.slice(CLOUD.length)).filter(identity)]);
   const cloudWrites=Object.create(null);
   for(const key of keys){
@@ -47,14 +55,15 @@
   const latest=await local.get(null);
   for(const key of keys)if(!equal(values[key],latest[key])){delete changes[key];delete cloudWrites[CLOUD+key];if(latest[META]?.[key])meta[key]=latest[META][key];else delete meta[key];}else if(dirty.get(key)===edits.get(key))dirty.delete(key);
   await local.set({...changes,[DEVICE]:device,[META]:meta});
-  if(!failure&&Object.keys(cloudWrites).length){try{await sync.set(cloudWrites);}catch(error){failure=error;}}
+  if(!failure&&Object.keys(cloudWrites).length){try{await requireSyncConsent();await sync.set(cloudWrites);}catch(error){failure=error;}}
   const previous=latest[STATUS]||{};
   const status={state:failure?'error':'ready',message:failure?'Saved locally; sync unavailable: '+failure.message+' Export a backup to transfer settings.':'Browser sync is ready. Browser account sync must be enabled on both devices.',lastSyncedAt:failure?previous.lastSyncedAt||null:Date.now(),count:Object.values(meta).filter(r=>r.value!==null).length};
   await local.set({[STATUS]:status});return status;
  }
  const run=()=>{clearTimeout(timer);timer=null;const work=chain.catch(()=>{}).then(reconcile);chain=work;return work;};
  const schedule=()=>{clearTimeout(timer);timer=setTimeout(()=>{run().catch(()=>{});},1000);};
- browser.storage.onChanged?.addListener((changes,area)=>{if(area==='local'){for(const key of Object.keys(changes))if(identity(key))dirty.set(key,Date.now());}if(area==='local'&&Object.keys(changes).some(identity)||area==='sync'&&Object.keys(changes).some(k=>k.startsWith(CLOUD)))schedule();});
+ browser.permissions?.onAdded?.addListener(schedule);browser.permissions?.onRemoved?.addListener(schedule);
+ browser.storage.onChanged?.addListener((changes,area)=>{if(area==='local'){for(const key of Object.keys(changes))if(identity(key))dirty.set(key,Date.now());}if(area==='local'&&(Object.keys(changes).some(identity)||changes.mrd_chrome_print_sync_enabled_v1)||area==='sync'&&Object.keys(changes).some(k=>k.startsWith(CLOUD)))schedule();});
  browser.runtime.onMessage.addListener(message=>{
   if(message?.type!=='mrd-print-sync')return;
   return (async()=>{
@@ -63,10 +72,10 @@
    if(message.action==='export'){
     await chain.catch(()=>{});const values=await local.get(null),entries=Object.create(null);
     for(const [key,value] of Object.entries(values)){const normalized=clean(key,value);if(normalized!==undefined)entries[key]=normalized;}
-    return {ok:true,backup:{format:'lemfield-print-settings',version:1,exportedAt:new Date().toISOString(),entries}};
+    return {ok:true,backup:{format:'moxfield-plus-print-settings',version:1,exportedAt:new Date().toISOString(),entries}};
    }
    if(message.action==='import'){
-    const b=message.backup;if(!b||b.format!=='lemfield-print-settings'||b.version!==1||!b.entries||typeof b.entries!=='object'||Array.isArray(b.entries)||JSON.stringify(b).length>5*1024*1024)throw Error('Choose a LemField print-settings backup smaller than 5 MB.');
+    const b=message.backup;if(!b||(typeof b.format!=='string'||!(/^[a-z][a-z0-9-]{0,50}-print-settings$/i).test(b.format))||b.version!==1||!b.entries||typeof b.entries!=='object'||Array.isArray(b.entries)||JSON.stringify(b).length>5*1024*1024)throw Error('Choose a LemField print-settings backup smaller than 5 MB.');
     const entries=Object.entries(b.entries);if(entries.length>5000)throw Error('Backup contains too many settings.');
     const normalized=Object.create(null);for(const [key,value] of entries){const v=clean(key,value);if(v===undefined)throw Error('Backup contains an invalid print setting. Nothing was imported.');normalized[key]=v;}
     // Explicit imports are new edits, even on a device without previous local records.

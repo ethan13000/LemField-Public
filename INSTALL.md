@@ -1,32 +1,19 @@
-﻿# Install LemField Alpha 7
+# Install LemField 1.1
 
-## Upgrade
+## Firefox 140+
 
-Export settings and print preferences as a backup first. Keep your current extension installed; uninstalling may clear local artwork and settings. Replace files in the folder you already load, then reload the extension and refresh Moxfield tabs. Alpha 7 keeps the Firefox extension ID unchanged.
+The Firefox ZIP is an unsigned release candidate. For a temporary installation, extract `LemField-1.1-Firefox.zip`, open `about:debugging#/runtime/this-firefox`, choose **Load Temporary Add-on**, and select the extracted `manifest.json`. Temporary add-ons must be loaded again after restarting Firefox. Permanent installation requires Mozilla signing or an approved store listing; no store approval is claimed.
 
-## Firefox
+The store package preserves the existing `moxfield-plus@ethan13000` add-on ID. Its visible name is LemField. The development copy retains `moxfield-requirements@local.extension`. Avoid running both copies together. Export requirements settings and print preferences before changing installations; artwork remains local and is not in JSON preference backups.
 
-1. Extract LemField-Alpha-7-Firefox.zip.
-2. Open about:debugging#/runtime/this-firefox.
-3. Choose Load Temporary Add-on and select the extracted manifest.json.
-4. Refresh Moxfield.
+## Chromium 120+
 
-Temporary add-ons need loading again after Firefox restarts. Permanent Firefox installation requires Mozilla signing.
+Extract `LemField-1.1-Chromium.zip`. Open `chrome://extensions` (or the equivalent page in Edge, Brave or Opera), enable **Developer mode**, choose **Load unpacked**, and select the extracted folder containing `manifest.json`. Keep the same folder path for subsequent updates to retain the unpacked extension identity. Safari is not supported. The ZIP can also be used for Chrome Web Store submission; no upload or approval has been performed.
 
-## Chrome, Edge, Brave and Opera
+## Updating and using decks
 
-1. Extract LemField-Alpha-7-Chromium.zip.
-2. Open the browser's Extensions page and turn on Developer mode.
-3. Choose Load unpacked and select the extracted directory.
-4. Refresh Moxfield.
+Reload the extension after replacing its files, then refresh existing Moxfield tabs once to load the new scripts. Normal card additions and printing changes no longer force a page reload when their dialog closes. Extension panels refresh from Moxfield; use **Refresh now** if Moxfield's native card list still shows an older state. That explicit page refresh can discard unsaved native edits, so finish those first.
 
-The Chromium manifest requires Chromium 120 or later and includes the offscreen permission for inert EDHREC HTML parsing. Unpacked extension IDs can change when the folder path changes; keep the same path to preserve identity and cross-device sync compatibility. Safari is not supported.
+Test deck writes on a test deck. If a write times out or reports uncertainty, check the deck before retrying. Bulk actions include every copy of the selected exact printing and require review before applying. Generated-token edition updates depend on Moxfield's API.
 
-## Quick checks
-
-- Open a Moxfield deck and locate Card Explorer beside Find and add cards.
-- Ctrl+Shift+click a card/token, or use its Printings context action.
-- Test native token edition updates on a test deck; read-back verification is required before the extension reports success.
-- Open the extension menu to prepare print sheets, export a PDF, or transfer print settings.
-
-Browser account sync, live Moxfield writes and current native UI compatibility have not been verified in the release environment. See README.md for validation limits.
+For physical double-faced printing, choose **Both faces**, select the intended flip edge and print at 100% scale with browser headers/footers off. Front/back pages are paired, with blank back slots preserving alignment. Test one sheet first. Custom artwork replaces fronts. Reopen an existing Print tab after changing uploaded artwork in a picker.

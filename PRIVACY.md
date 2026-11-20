@@ -1,0 +1,35 @@
+# LemField privacy policy
+
+Effective November 8, 2026.
+
+LemField is independent. The developer operates no extension analytics, advertising or data-collection server.
+
+## Data used for functionality
+
+Moxfield receives current deck identifiers/URLs, deck content, card names, chosen editions, quantities and requested deck changes. Signed-in actions use the existing Moxfield authorization header observed inside its page, only with Moxfield's API. Authentication values are not stored, exported or sent to EDHREC/Scryfall. The extension never asks for your password.
+
+EDHREC receives card/commander identifiers derived from your active deck or selected card to retrieve recommendations and information. Recommendation/detail queries may run automatically for the active deck.
+
+Scryfall receives card names, set/collector identifiers, card-search terms and derived role/filter queries for metadata, artwork, printings, tags and tokens. Images also load from EDHREC image hosts, Moxfield's asset host and Scryfall's symbol host.
+
+Providers receive ordinary network metadata such as IP addresses and request headers, under their own policies. The extension does not collect unrelated browsing history or intercept browser/search-engine searches.
+
+Firefox's consent declares website content, browsing activity, search terms and authentication information for this functionality. This does not authorize selling data or unrelated use.
+
+## Storage and transfer
+
+Profiles, feature switches, deck context, printing choices, token quantities and temporary status/undo records are stored in your browser. Uploaded artwork is local; it is not uploaded to Moxfield, EDHREC or Scryfall.
+
+When Firefox account extension sync is available, small printing choices and token quantities may synchronize through Firefox Sync, including deck IDs and card/edition information. Credentials, artwork and undo history are excluded. Mozilla's account/sync policies apply.
+
+JSON export is a user-initiated local download. Import reads a selected file and may synchronize supported imported preferences if Firefox Sync is enabled. PDF creation takes place locally.
+
+## Control and deletion
+
+Disable optional features in the popup, then refresh Moxfield. Disable extension syncing in Firefox account settings to stop cloud synchronization. Use reset controls for saved settings/artwork. Removing the add-on removes its active local installation data; downloaded exports and provider-held data must be managed separately.
+
+Private browsing is disabled for this release. No telemetry, crash-report upload, advertising identifiers or sale of data is implemented.
+
+For support/privacy questions, use the publisher's maintained support contact on the official LemField Mozilla Add-ons listing.
+
+Optional sync consent: Firefox technical/interaction data consent is used only for optional print-settings synchronization, including its conflict-resolution device ID. No analytics or telemetry is sent to the developer. Without opt-in, no cloud sync read/write occurs; local storage and JSON export/import remain available. Consent can be revoked in Firefox add-on permissions.

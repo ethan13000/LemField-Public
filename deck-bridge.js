@@ -47,10 +47,34 @@ async function decks(deadline){
  return list.filter(d=>validID(d.id)&&validID(d.publicId)).map(d=>({id:d.id,publicId:d.publicId,name:String(d.name||'Untitled deck')}));
 }
 const completed=new Map(),pending=new Map();
+let cleanupBusy=false,mutationBusy=false;
 async function execute(message,deadline=Date.now()+45000){
+ if(message.action==='bulkSelection'){
+  if(cleanupBusy)throw Error('Another bulk deck action is running.');cleanupBusy=true;
+  try{return await globalThis.MoxDeckBulk.apply(message,{request,decks,deadline});}finally{cleanupBusy=false;}
+ }
+ if(message.action==='removeDuplicates'){
+  if(cleanupBusy)throw Error('A duplicate cleanup is already running.');cleanupBusy=true;
+  try{
+  if(!validID(message.deck)||!Array.isArray(message.plan)||!message.plan.length||message.plan.length>50)throw Error('Invalid cleanup request.');
+  const owned=await decks(deadline),deck=owned.find(d=>d.publicId===message.deck);if(!deck)throw Error('Choose one of your own decks.');
+  const raw=await request('/v3/decks/all/'+message.deck,undefined,deadline),plan=globalThis.MoxfieldPlusDuplicates.rawPlan(raw);
+  if(!plan.length||plan.length>50||JSON.stringify(plan)!==JSON.stringify(message.plan))throw Error('The deck changed or the cleanup is too large. Reopen Remove duplicates to review it.');
+  let removed=0;
+  try{for(const row of plan){const url='/v2/decks/'+deck.id+'/cards/mainboard/'+row.id;await request(url,row.to?{quantity:row.to}:undefined,deadline,row.to?'PUT':'DELETE');removed+=row.from-row.to;}
+   const checked=await request('/v3/decks/all/'+message.deck,undefined,deadline);if(!(checked?.boards?.mainboard||checked?.mainboard||checked?.mainBoard)||globalThis.MoxfieldPlusDuplicates.rawPlan(checked).length)throw Error('Cleanup could not be verified.');
+   const actual=globalThis.MoxfieldPlusDuplicates.rawCards(checked),expected=globalThis.MoxfieldPlusDuplicates.rawCards(raw).map(c=>({...c,qty:plan.find(r=>r.id===c.id)?.to??c.qty})).filter(c=>c.qty>0),signature=rows=>JSON.stringify(rows.filter(c=>c.qty>0).map(c=>[c.id,c.qty]).sort((a,b)=>a[0].localeCompare(b[0])));
+   if(signature(actual)!==signature(expected))throw Error('The main deck differs from the reviewed quantities.');
+   window.postMessage({source:'mrd-deck-response-v2',id:message.deck,deck:checked},location.origin);
+   if(location.pathname.split('/')[2]===message.deck)window.postMessage({source:'mrd-deck-updated-v1',id:message.deck},location.origin);return {removed};
+  }catch(error){throw Error('Cleanup may be partial ('+removed+' copies acknowledged). Check the deck before retrying. '+error.message);}
+  }finally{cleanupBusy=false;}
+ }
  if(message.action==='decks')return {decks:await decks(deadline)};
  if(message.action==='preview'&&validID(message.deck))return {deck:await request('/v3/decks/all/'+message.deck)};
  if(message.action!=='add'||!validID(message.deck)||typeof message.name!=='string'||!message.name.trim()||message.name.length>160||!['mainboard','sideboard','maybeboard'].includes(message.board))throw new Error('Invalid deck action.');
+ const quantity=message.quantity??1;
+ if(!Number.isInteger(quantity)||quantity<1||quantity>999)throw new Error('Invalid card quantity.');
  const owned=await decks(deadline),deck=owned.find(d=>d.publicId===message.deck);
  if(!deck)throw new Error('Choose one of your own Moxfield decks. The current deck may belong to another player.');
  const printing=message.printing;
@@ -71,7 +95,7 @@ async function execute(message,deadline=Date.now()+45000){
  }
  if(printing&&!card)throw new Error('The selected printing could not be matched on Moxfield. No card was added.');
  if(!card||!validID(card.id))throw new Error('An exact Moxfield card match was not found. No card was added.');
- const result=await request(`/v2/decks/${deck.id}/cards/${message.board}`,{cardId:card.id,quantity:1,usePrefPrinting:!printing},deadline);
+ const result=await request(`/v2/decks/${deck.id}/cards/${message.board}`,{cardId:card.id,quantity,usePrefPrinting:!printing},deadline);
  if(!result?.card)throw new Error('Moxfield did not confirm the add. Check the deck before trying again.');
  // Update requirements counts when the destination deck is open in this tab.
  if(location.pathname.split('/')[2]===deck.publicId){
@@ -164,9 +188,7 @@ async function changePrinting(message,deadline=Math.min(Date.now()+10000,Number(
  if(newRows.length!==1){const seen=verified.filter(row=>nameKey(row.card?.name)===nameKey(message.name)).map(row=>`${row.card?.set||'?'} #${row.card?.cn||row.card?.collector_number||row.card?.collectorNumber||'?'} x${row.quantity}`).join(', ')||'no matching card entries',ackSet=typeof responseCard?.set==='object'?responseCard.set?.code:responseCard?.set,ackNumber=responseCard?.cn??responseCard?.collector_number??responseCard?.collectorNumber,acknowledgement=ackSet&&ackNumber?` Moxfield acknowledged ${ackSet} #${ackNumber}.`:'';throw new Error(`Printing change may be incomplete: expected ${chosen.set} #${chosen.collectorNumber} x${existing.quantity}; Moxfield returned ${seen}.${acknowledgement} Refresh and check the card.`);}
  if(location.pathname.split('/')[2]===deck.publicId){
   window.postMessage({source:'mrd-deck-printing-complete-v1',id:deck.publicId},location.origin);
-  request('/v3/decks/all/'+deck.publicId,undefined,deadline).then(updated=>{
-   if(location.pathname.split('/')[2]===deck.publicId)window.postMessage({source:'mrd-deck-response-v2',id:deck.publicId,deck:updated},location.origin);
-  }).catch(()=>{});
+  window.postMessage({source:'mrd-deck-response-v2',id:deck.publicId,deck:checked},location.origin);
  }
  return {deck,card:{name:message.name},cardId:replacement.id,printing:{set:chosen.set,collectorNumber:chosen.collectorNumber},board:existing.section,quantity:existing.quantity};
 }
@@ -179,7 +201,17 @@ window.addEventListener('message',event=>{
  let task=pending.get(message.requestId);
  if(!task){
   if(pending.size>=16){reply({ok:false,error:'Too many deck actions are pending. Wait for them to finish.'});return;}
-  task=Promise.resolve().then(()=>message.action==='changePrinting'?changePrinting(message):execute(message)).then(data=>({ok:true,data}),error=>({ok:false,error:error?.message||'Moxfield action failed.'})).then(result=>{
+  task=Promise.resolve().then(async()=>{
+   const mutating=['add','changePrinting','removeDuplicates','bulkSelection'].includes(message.action);
+   if(mutating&&mutationBusy)throw Error('Another deck update is running. Wait for it to finish before changing cards.');
+   if(mutating)mutationBusy=true;
+   try{return await (message.action==='changePrinting'?changePrinting(message):execute(message));}
+   finally{if(mutating)mutationBusy=false;}
+  }).then(data=>({ok:true,data}),error=>{
+   const detail=error?.message||'Moxfield action failed.';
+   if(['add','changePrinting','removeDuplicates','bulkSelection'].includes(message.action)&&validID(message.deck)&&location.pathname.split('/')[2]===message.deck&&/result unknown|may be (?:partial|incomplete)|could not confirm|did not confirm/i.test(detail))window.postMessage({source:'mrd-deck-invalidated-v1',id:message.deck},location.origin);
+   return {ok:false,error:detail};
+  }).then(result=>{
    if(completed.size>=100)completed.delete(completed.keys().next().value);completed.set(message.requestId,result);pending.delete(message.requestId);return result;
   });
   pending.set(message.requestId,task);

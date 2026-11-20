@@ -5,6 +5,8 @@ class Node{
  constructor(tag,text='',cls=''){this.tag=tag;this.textContent=text;this.className=cls;this.children=[];this.hidden=false;}
  append(node){node.parent=this;this.children.push(node);}
  querySelector(selector){return this.children.find(node=>selector==='img'?node.tag==='img':node.className===selector.slice(1))||null;}
+ querySelectorAll(selector){return this.children.filter(node=>selector==='img'&&node.tag==='img');}
+ setAttribute(name,value){this[name]=value;}
  remove(){this.parent.children=this.parent.children.filter(node=>node!==this);}
 }
 (async()=>{
@@ -12,6 +14,12 @@ class Node{
  const ctx={el:(...args)=>new Node(...args),E:global.MoxEDHREC,artTargets:new Map(),MoxImageLoader:{pump(){},enqueue(img,url,{loaded,failed}){img.src=url;img.onload=loaded;img.onerror=failed;}},artObserver:null,knownDetails:()=>null,requestDescription:()=>{},requestCardDetails:async(name,printingId)=>{calls.push({name,printingId});return {ok:true,url:'https://cards.scryfall.io/normal/recovered.jpg'};}};
  const source=fs.readFileSync(require.resolve('../edhrec.js'),'utf8');vm.createContext(ctx);vm.runInContext(source.slice(source.indexOf('function art(card,large=false,view=null){'),source.indexOf('\nlet hover=null')),ctx);
  const flush=()=>new Promise(resolve=>setImmediate(resolve));
+ const front='https://cards.scryfall.io/normal/front/test.jpg',back='https://cards.scryfall.io/normal/back/test.jpg';
+ const double=ctx.art({name:'Front // Back',card_faces:[{image_uris:{normal:front}},{image_uris:{normal:back}}]});
+ const flip=double.querySelector('.edh-face-toggle');assert(flip);assert.equal(double.querySelector('img').src,front);double.querySelector('img').onload();
+ flip.onclick({preventDefault(){},stopPropagation(){}});assert.equal(double.querySelector('img').src,back);assert.match(double.querySelector('img').alt,/back/);assert.equal(flip.textContent,'Show front face');
+ flip.onclick({preventDefault(){},stopPropagation(){}});assert.equal(double.querySelector('img').src,front);assert.equal(double.querySelectorAll('img').length,1);
+ assert.equal(ctx.art({name:'Adventure // Creature',image_uris:{normal:front},card_faces:[{name:'Adventure'},{name:'Creature'}]}).querySelector('.edh-face-toggle'),null);
  const deckCard=global.MoxRules.normalizeDeck({boards:{mainboard:{cards:[{quantity:1,card:{id:'moxfield-id',name:'Added card',set:'sld',cn:'123',scryfall_id:id,imageUrl:'https://cards.scryfall.io/normal/added.jpg'}}]}}})[0];
  assert.equal(deckCard.scryfallId,id);assert.equal(deckCard.collectorNumber,'123');assert.equal(ctx.art(deckCard).querySelector('img').src,'https://cards.scryfall.io/normal/added.jpg','Refreshed deck keeps its artwork');
  const described=ctx.art({name:'Rules example',type:'Instant',oracle:'Draw two cards.',image:'https://cards.scryfall.io/normal/rules.jpg'});const placeholder=described.querySelector('.edh-art-placeholder');assert.match(placeholder.textContent,/Draw two cards/);assert.equal(placeholder.hidden,false,'Description visible while image loads');described.querySelector('img').onload();assert.equal(placeholder.hidden,true,'Artwork replaces description only after load');

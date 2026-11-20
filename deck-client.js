@@ -17,7 +17,7 @@ async function command(action,values={},onProgress,actionDeadline){
  await connectBridge();
  const requestId=crypto.randomUUID();
  return new Promise((resolve,reject)=>{
-  const timer=setTimeout(()=>{const stage=pending.get(requestId)?.stage;pending.delete(requestId);reject(new Error((stage?stage+': ':'')+(action==='add'?'Add result unknown. Check the deck before trying again.':action==='changePrinting'?'Printing update timed out after 10 seconds. The result may be incomplete; close the menu to refresh and check the deck before retrying.':'Moxfield did not respond. Refresh the page and retry.')));},deadline?Math.max(0,deadline-Date.now()):105000);
+  const timer=setTimeout(()=>{const stage=pending.get(requestId)?.stage;pending.delete(requestId);reject(new Error((stage?stage+': ':'')+(action==='add'?'Add result unknown. Check the deck before trying again.':action==='changePrinting'?'Printing update timed out after 10 seconds. The result may be incomplete; check the deck before retrying; use Refresh now if needed.':'Moxfield did not respond. Refresh the page and retry.')));},deadline?Math.max(0,deadline-Date.now()):105000);
   pending.set(requestId,{resolve,reject,timer,onProgress});window.postMessage({...values,...(deadline?{deadline}:{}),source:'mrd-deck-command-v1',requestId,action},location.origin);
  });
 }
@@ -30,6 +30,13 @@ async function remember(name){
  // This record does not replace the per-tab current-deck context.
  try{await browser.storage?.local?.set?.({mrd_last_deck:{id:current.id,name:current.name}});}catch{}
 }
+function captureDeck(id,raw,notify=true){
+ if(captured?.id===id&&Number(captured.deck?.version)>Number(raw?.version))return;
+ const board=raw?.boards?.commanders||raw?.commanders||{},entries=board.cards||board.cardEntries||board;
+ const names=Object.values(entries).map(entry=>(entry?.card||entry?.cardData||entry)?.name).filter(Boolean);
+ context={name:names[0]||null,commanders:names,deck:id};captured={id,deck:raw};previewPending=null;
+ remember(raw?.name).catch(()=>{});if(notify){deckEpoch++;window.dispatchEvent(new CustomEvent('mrd-current-deck-updated'));}
+}
 window.addEventListener('message',event=>{
  if(event.source!==window||event.origin!==location.origin)return;
  const message=event.data;
@@ -39,14 +46,11 @@ window.addEventListener('message',event=>{
   const entry=pending.get(message.requestId);if(!entry)return;
   clearTimeout(entry.timer);pending.delete(message.requestId);message.ok?entry.resolve(message.data):entry.reject(new Error((entry.stage?entry.stage+': ':'')+(message.error||'Moxfield action failed.')));
  }
+ if(['mrd-deck-invalidated-v1','mrd-deck-updated-v1','mrd-deck-add-complete-v1','mrd-deck-printing-complete-v1'].includes(message?.source)&&message.id===location.pathname.split('/')[2]){captured=null;previewPending=null;deckEpoch++;window.dispatchEvent(new CustomEvent('mrd-current-deck-updated'));return;}
  if(message?.source==='mrd-route-v3'){context=null;captured=null;previewPending=null;deckEpoch++;remember().catch(()=>{});}
  if(message?.source==='mrd-deck-response-v2'&&message.id===location.pathname.split('/')[2]){
   if(captured?.id===message.id&&Number(captured.deck.version)>Number(message.deck?.version))return;
-  const commanders=message.deck?.boards?.commanders?.cards||message.deck?.commanders||{};
-  const names=Object.values(commanders).map(entry=>entry?.card?.name||entry?.name).filter(Boolean);context={name:names[0]||null,commanders:names,deck:message.id};
-  captured={id:message.id,deck:message.deck};previewPending=null;deckEpoch++;
-  remember(message.deck?.name).catch(()=>{});
-  window.dispatchEvent(new CustomEvent('mrd-current-deck-updated'));
+  captureDeck(message.id,message.deck);
  }
 });
 window.addEventListener('popstate',()=>{context=null;captured=null;previewPending=null;deckEpoch++;remember().catch(()=>{});});
@@ -55,8 +59,9 @@ globalThis.MoxDecks={context:()=>context,list:()=>command('decks'),changePrintin
  const deck=await globalThis.MoxDecks.current();if(!deck)throw new Error('Open the deck containing this card in this tab first.');
  const result=await command('changePrinting',{name:source.name,deck:deck.id,printing:{set:printing.set,collectorNumber:printing.collectorNumber},sourceCard:{...(source.cardId?{cardId:source.cardId}:{}),...(source.set&&source.collectorNumber?{set:source.set,collectorNumber:source.collectorNumber}:{})},...(board||source.section?{board:board||source.section}:{})},onProgress,deadline);
  captured=null;previewPending=null;deckEpoch++;window.dispatchEvent(new CustomEvent('mrd-current-deck-updated'));return result;
-},add:async(card,deck,board='mainboard')=>{
- const result=await command('add',{name:card.name,deck,board,...(card.collectorNumber&&card.set?{printing:{scryfallId:card.id,set:card.set,collectorNumber:card.collectorNumber}}:{})});
+},add:async(card,deck,board='mainboard',quantity=1)=>{
+ if(!Number.isInteger(quantity)||quantity<1||quantity>999)throw Error('Choose a whole quantity from 1 to 999.');
+ const result=await command('add',{name:card.name,deck,board,quantity,...(card.collectorNumber&&card.set?{printing:{scryfallId:card.id,set:card.set,collectorNumber:card.collectorNumber}}:{})});
  if(current?.id===deck){captured=null;previewPending=null;deckEpoch++;window.dispatchEvent(new CustomEvent('mrd-current-deck-updated'));}return result;
 },current:async()=>{
  const id=location.pathname.match(/^\/decks\/([A-Za-z0-9_-]+)/)?.[1];
@@ -74,24 +79,42 @@ browser.runtime.onMessage.addListener(message=>{
  })();
 });
 // Read a list-row total without changing the current deck or its preview cache.
-globalThis.MoxDecks.cardCount=async id=>{
+globalThis.MoxDecks.removeDuplicates=async(plan,deckID)=>{
+ const id=location.pathname.match(/^\/decks\/([A-Za-z0-9_-]+)\/?$/)?.[1];
+ if(!id||(deckID&&id!==deckID))throw Error('The deck changed. Reopen Remove duplicates to review it.');
+ const deck=await globalThis.MoxDecks.current();if(!deck||deck.id!==id||id!==location.pathname.match(/^\/decks\/([A-Za-z0-9_-]+)\/?$/)?.[1])throw Error('The deck changed. Reopen Remove duplicates to review it.');
+ const result=await command('removeDuplicates',{deck:id,plan});captured=null;previewPending=null;deckEpoch++;window.dispatchEvent(new CustomEvent('mrd-current-deck-updated'));return result;
+};
+globalThis.MoxDecks.bulkSelection=async(plan,deckID)=>{
+ const id=location.pathname.match(/^\/decks\/([A-Za-z0-9_-]+)\/?$/)?.[1];
+ if(!id||id!==deckID)throw Error('The deck changed. Select its cards again.');
+ const result=await command('bulkSelection',{deck:id,plan});captured=null;previewPending=null;deckEpoch++;window.dispatchEvent(new CustomEvent('mrd-current-deck-updated'));return result;
+};
+globalThis.MoxDecks.listSummary=async id=>{
  if(typeof id!=='string'||!/^[A-Za-z0-9_-]{1,100}$/.test(id))throw Error('Invalid deck ID.');
  const {deck}=await command('preview',{deck:id});
  if(!deck||typeof deck!=='object'||!(deck.boards||deck.mainboard||deck.mainBoard||deck.cards))throw Error('Deck card count unavailable.');
- return globalThis.MoxRules.normalizeDeck(deck).filter(card=>['mainboard','commanders'].includes(card.section)).reduce((sum,card)=>sum+card.qty,0);
+ const cards=globalThis.MoxRules.normalizeDeck(deck);
+ return {count:cards.filter(card=>['mainboard','commanders'].includes(card.section)).reduce((sum,card)=>sum+card.qty,0),commanders:[...new Set(cards.filter(card=>card.section==='commanders'&&card.qty>0).map(card=>card.name).filter(Boolean))]};
 };
+globalThis.MoxDecks.cardCount=async id=>(await globalThis.MoxDecks.listSummary(id)).count;
 globalThis.MoxDecks.preview=async(force=false)=>{
  const deck=await globalThis.MoxDecks.current();if(!deck)return null;
  if(force){captured=null;previewPending=null;deckEpoch++;}
  const epoch=deckEpoch;
- const summarize=raw=>{const cards=globalThis.MoxRules.normalizeDeck(raw);return {id:deck.id,name:raw.name||deck.name,cards,activeCount:cards.filter(c=>['mainboard','commanders'].includes(c.section)).reduce((total,c)=>total+c.qty,0)};};
+ const summarize=raw=>{const cards=globalThis.MoxRules.normalizeDeck(raw);return {id:deck.id,name:raw.name||deck.name,format:raw.format||'',cards,activeCount:cards.filter(c=>['mainboard','commanders'].includes(c.section)).reduce((total,c)=>total+c.qty,0)};};
  if(!force&&captured?.id===deck.id)return summarize(captured.deck);
  if(previewPending?.id===deck.id&&previewPending.epoch===epoch)return previewPending.promise;
  const promise=command('preview',{deck:deck.id}).then(result=>{
   if(epoch!==deckEpoch||current?.id!==deck.id)return globalThis.MoxDecks.preview();
-  captured={id:deck.id,deck:result.deck};return summarize(result.deck);
+  captureDeck(deck.id,result.deck,false);return summarize(captured.deck);
  }).finally(()=>{if(previewPending?.promise===promise)previewPending=null;});
  previewPending={id:deck.id,epoch,promise};return promise;
+};
+globalThis.MoxDecks.readCurrent=async()=>{
+ const id=location.pathname.match(/^\/decks\/([A-Za-z0-9_-]+)\/?$/)?.[1];if(!id)throw Error('Open a deck first.');
+ const epoch=deckEpoch,result=await command('preview',{deck:id});if(epoch!==deckEpoch||id!==location.pathname.split('/')[2])throw Error('The deck changed while reading it.');
+ captureDeck(id,result.deck,false);return captured.deck;
 };
 globalThis.MoxDecks.commander=async()=>{
  const deck=await globalThis.MoxDecks.current(),currentID=location.pathname.match(/^\/decks\/([A-Za-z0-9_-]+)/)?.[1];

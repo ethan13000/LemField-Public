@@ -15,12 +15,12 @@ async function drain(){
  try{while(hoverJobs.length||priorityJobs.length||normalJobs.length){const job=hoverJobs.shift()||priorityJobs.shift()||normalJobs.shift();if(job.key)queuedJobs.delete(job.key);try{job.resolve(await job.run());}catch(error){job.reject(error);}await new Promise(resolve=>setTimeout(resolve,500));}}
  finally{draining=false;}
 }
-function cardResult(card){const images=globalThis.MoxEDHREC.imageURLs(card);return {ok:true,url:images[0]||null,images,description:String(card.oracle_text||card.card_faces?.map(face=>face.oracle_text).filter(Boolean).join('\n')||'').trim(),manaCost:String(card.mana_cost||''),details:globalThis.MoxCardSearch?.metadata(card)};}
+function cardResult(card){const images=globalThis.MoxEDHREC.imageURLs(card);return {ok:true,printFaces:card.image_uris?[images[0]||null]:(card.card_faces||[]).map(face=>globalThis.MoxEDHREC.imageURLs({image_uris:face.image_uris})[0]||null),url:images[0]||null,images,description:String(card.oracle_text||card.card_faces?.map(face=>face.oracle_text).filter(Boolean).join('\n')||'').trim(),manaCost:String(card.mana_cost||''),details:globalThis.MoxCardSearch?.metadata(card)};}
 function store(name,result){if(cache.size>=300&&!cache.has(name))cache.delete(cache.keys().next().value);cache.set(name,{time:Date.now(),result});}
 function artTagNames(message){
  const relevant=tags=>{const ids=Array.isArray(message?.illustrationIds)?message.illustrationIds.filter(id=>typeof id==='string'):[],counts=new Map();for(const id of ids)counts.set(id,(counts.get(id)||0)+1);return {ok:true,tags:tags.map(tag=>({label:tag.label,count:tag.ids.reduce((sum,id)=>sum+(counts.get(id)||0),0)})).filter(tag=>tag.count>0&&tag.count<ids.length).sort((a,b)=>b.count-a.count||a.label.localeCompare(b.label))};};
  if(artTagNamesCache)return Promise.resolve(relevant(artTagNamesCache));
- if(artTagNamesPending)return artTagNamesPending.then(()=>relevant(artTagNamesCache||[]));
+ if(artTagNamesPending)return artTagNamesPending.then(result=>result.ok?relevant(artTagNamesCache||[]):result);
  artTagNamesPending=enqueue(async()=>{
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000);
   try{
@@ -129,11 +129,11 @@ browser.runtime.onMessage.addListener(message=>{
  if(message?.type==='mrd-role-cards')return searchRole(message);
  if(message?.type==='mrd-card-art-choice')return artChoice(message);
  if(!['mrd-card-art','mrd-card-printings'].includes(message?.type)||typeof message.name!=='string'||!message.name.trim()||message.name.length>160)return;
- const prints=message.type==='mrd-card-printings',page=message.page??1;
+ const prints=message.type==='mrd-card-printings',page=message.page??1,includeOtherLanguages=prints&&message.includeOtherLanguages===true;
  const printingId=message.printingId;if(printingId!==undefined&&!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(printingId))return;
  const printing=message.printing;if(printing&&(!/^[a-z0-9]{2,10}$/i.test(printing.set||'')||typeof printing.collectorNumber!=='string'||!printing.collectorNumber||printing.collectorNumber.length>30))return;
  if(prints&&(!Number.isInteger(page)||page<1||page>100))return;
- const artTag=prints&&typeof message.artTag==='string'?message.artTag.trim().slice(0,80):'',name=message.name.trim(),key=prints?JSON.stringify([name,page,message.secretLair===true,message.isToken===true,artTag]):printingId?'printing:'+printingId:printing?'printing:'+printing.set+'/'+printing.collectorNumber:name,cached=cache.get(key);
+ const artTag=prints&&typeof message.artTag==='string'?message.artTag.trim().slice(0,80):'',name=message.name.trim(),key=prints?JSON.stringify([name,page,message.secretLair===true,message.isToken===true,artTag,includeOtherLanguages]):printingId?'printing:'+printingId:printing?'printing:'+printing.set+'/'+printing.collectorNumber:name,cached=cache.get(key);
  if(cached&&Date.now()-cached.time<(cached.result.ok&&(prints||cached.result.url)?86400000:60000))return Promise.resolve(cached.result);
  if(pending.has(key)){if(message.priority==='hover')promote(key);return pending.get(key);}
  const work=enqueue(async()=>{
@@ -141,7 +141,7 @@ browser.runtime.onMessage.addListener(message=>{
   let result;
   try{
    const safeArtTag=artTag.replace(/[\u0000-\u001f\u007f]/g,'').trim().slice(0,80),query='!"'+name.split(' // ')[0].replace(/\\/g,'\\\\').replace(/"/g,'\\"')+'"'+(safeArtTag?' art:"'+safeArtTag.replace(/\\/g,'\\\\').replace(/"/g,'\\"')+'"':'')+' -is:artseries'+(message.isToken===true?' t:token':'')+(message.secretLair===true?' (set:sld or set:slx or set:slc or set:slp)':'');
-   const endpoint=prints?'https://api.scryfall.com/cards/search?'+new URLSearchParams({q:query,unique:'prints',order:'released',dir:'desc',include_extras:'true',page:String(page)}):printingId?'https://api.scryfall.com/cards/'+printingId:printing?'https://api.scryfall.com/cards/'+encodeURIComponent(printing.set)+'/'+encodeURIComponent(printing.collectorNumber):'https://api.scryfall.com/cards/named?exact='+encodeURIComponent(name);
+   const endpoint=prints?'https://api.scryfall.com/cards/search?'+new URLSearchParams({q:query+(includeOtherLanguages?'':' lang:en'),unique:'prints',order:'released',dir:'desc',include_extras:'true',include_multilingual:String(includeOtherLanguages),page:String(page)}):printingId?'https://api.scryfall.com/cards/'+printingId:printing?'https://api.scryfall.com/cards/'+encodeURIComponent(printing.set)+'/'+encodeURIComponent(printing.collectorNumber):'https://api.scryfall.com/cards/named?exact='+encodeURIComponent(name);
    const response=await fetch(endpoint,{signal:controller.signal,credentials:'omit',headers:{Accept:'application/json','User-Agent':'MoxfieldRequirements/1.9'}});
    if(prints&&response.status===404)result={ok:true,cards:[],hasMore:false,total:0};
    else {
@@ -149,7 +149,7 @@ browser.runtime.onMessage.addListener(message=>{
     const card=await (globalThis.MoxResponses?globalThis.MoxResponses.json(response):response.json());
     if(prints){
      if(!Array.isArray(card.data))throw Error('Unrecognized printing response.');
-     result={ok:true,cards:card.data.map(globalThis.MoxCardSearch.printing).filter(c=>c.layout!=='art_series'&&c.id&&c.name&&c.url),hasMore:card.has_more===true&&page<100,total:Number.isFinite(card.total_cards)?card.total_cards:null};
+     result={ok:true,cards:card.data.map(globalThis.MoxCardSearch.printing).filter(c=>c.layout!=='art_series'&&(includeOtherLanguages||c.lang==='en')&&c.id&&c.name&&c.url),hasMore:card.has_more===true&&page<100,total:Number.isFinite(card.total_cards)?card.total_cards:null};
     }else result=cardResult(card);
    }
   }catch(error){result={ok:false,error:error.name==='AbortError'?'Scryfall request timed out.':error.message};}

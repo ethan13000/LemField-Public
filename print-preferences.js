@@ -14,7 +14,7 @@
  const undoKey=(deck,card)=>key(deck,card).replace(prefix(deck),undoPrefix(deck));
  // A temporary extension can lose its own storage when removed/reinstalled.
  // Keep a second copy on the Moxfield origin, independent of extension identity.
- const backupPrefix='lemfield_print_backup_v1:';
+ const backupPrefix='moxfield-plus_print_backup_v1:';
  const siteStorage=()=>{try{return /^https:\/\/(?:www\.)?moxfield\.com$/.test(location.origin)?localStorage:null;}catch{return null;}};
  const backup=(storedKey,choice)=>{try{const site=siteStorage();if(choice)site?.setItem(backupPrefix+storedKey,JSON.stringify(choice));else site?.removeItem(backupPrefix+storedKey);}catch{}};
  const restored=(async()=>{try{const site=siteStorage();if(!site)return;const values=await browser.storage.local.get(null),missing={};for(let index=0;index<site.length;index++){const entry=site.key(index);if(!entry?.startsWith(backupPrefix))continue;const storedKey=entry.slice(backupPrefix.length),choice=(()=>{try{return JSON.parse(site.getItem(entry));}catch{return null;}})();if(!valid(choice))continue;const deck=storedKey.match(/^mrd_print_edition_v1:([A-Za-z0-9_-]+):/)?.[1];if(!deck||!compatible(storedKey,key(deck,choice)))continue;const canonical=key(deck,choice),current=missing[canonical]||values[canonical];if(Object.hasOwn(values.mrd_print_sync_meta_v1||{},canonical))continue;if(!current||(choice.selectedAt||0)>(current.selectedAt||0))missing[canonical]=choice;}if(Object.keys(missing).length)await browser.storage.local.set(missing);for(const [storedKey,choice] of Object.entries(values)){if(storedKey.startsWith('mrd_print_edition_v1:'))backup(storedKey,valid(choice)?choice:null);}}catch{}})();
@@ -29,10 +29,22 @@
   },
   async read(deck,undo=false){
    await restored;
-   const values=await browser.storage.local.get(null),choices=new Map(),start=undo?undoPrefix(deck):prefix(deck);
+   const values=await browser.storage.local.get(null),choices=new Map(),start=undo?undoPrefix(deck):prefix(deck),migrations=[];
+   // Select the newest record across the entire snapshot before rewriting legacy keys.
+   // A legacy key can enumerate before a newer canonical choice.
    for(const [storedKey,choice] of Object.entries(values||{})){
     if(!storedKey.startsWith(start)||!valid(choice))continue;
-    try{const canonical=undo?undoKey(deck,choice):key(deck,choice);if(compatible(storedKey,canonical)){const current=choices.get(key(deck,choice));if(!current||(choice.selectedAt||0)>=(current.selectedAt||0))choices.set(key(deck,choice),choice);if(storedKey!==canonical){await browser.storage.local.set({[canonical]:choices.get(key(deck,choice))});await browser.storage.local.remove(storedKey);backup(storedKey,null);backup(canonical,choices.get(key(deck,choice)));}}}catch{}
+    try{const canonical=undo?undoKey(deck,choice):key(deck,choice);if(!undo&&storedKey!==canonical&&Object.hasOwn(values.mrd_print_sync_meta_v1||{},canonical))continue;if(compatible(storedKey,canonical)){const identity=key(deck,choice),current=choices.get(identity);if(!current||(choice.selectedAt||0)>=(current.selectedAt||0))choices.set(identity,choice);if(storedKey!==canonical)migrations.push({storedKey,canonical,identity});}}catch{}
+   }
+   for(const {storedKey,canonical,identity} of migrations){
+    // Keep a selection made while this read was pending, rather than restoring stale art.
+    const latest=await browser.storage.local.get([storedKey,canonical]);
+    if(JSON.stringify(latest[storedKey])!==JSON.stringify(values[storedKey]))continue;
+    if(JSON.stringify(latest[canonical])!==JSON.stringify(values[canonical])){
+     if(valid(latest[canonical]))choices.set(identity,latest[canonical]);else choices.delete(identity);
+     continue;
+    }
+    const winner=choices.get(identity);await browser.storage.local.set({[canonical]:winner});await browser.storage.local.remove(storedKey);backup(storedKey,null);backup(canonical,winner);
    }
    return choices;
   },
