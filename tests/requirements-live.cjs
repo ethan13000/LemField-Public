@@ -12,6 +12,8 @@ const xhr=new XHR();xhr.open('DELETE','https://api2.moxfield.com/v2/decks/intern
 const failed=new XHR();failed.open('PUT','https://api2.moxfield.com/v2/decks/internal/cards/mainboard');failed.send();failed.status=403;failed.load();assert.equal(invalidations().length,2);
 const stale=new XHR();stale.open('PATCH','https://api2.moxfield.com/v2/decks/internal');stale.send();location.pathname='/decks/two';stale.status=200;stale.load();assert.equal(invalidations().length,2,'Old route writes cannot refresh a new deck');
 const source=fs.readFileSync(require.resolve('../content.js'),'utf8');let callback,fetching=true,refreshes=0;
+const analysis={className:'container'},placement={document:{querySelector:selector=>{assert.equal(selector,'[data-testid="deck-section-manaCurve"]');return analysis;},querySelectorAll(){throw Error('New editor must not rely on legacy chart scanning');}}};
+vm.createContext(placement);vm.runInContext(source.slice(source.indexOf('function findGraphBlock('),source.indexOf('function tryPlace(')),placement);assert.equal(placement.findGraphBlock(),analysis,'New editor requirements anchor to the complete Mana Curve section');
 const state={deckId:()=> 'one',routeGeneration:1,clearTimeout(){},setTimeout:fn=>{callback=fn;return 1;},get fetching(){return fetching;},refresh:force=>{assert(force);refreshes++;}};
 vm.createContext(state);vm.runInContext(source.slice(source.indexOf('let liveRefreshTimer='),source.indexOf("window.addEventListener('message',event=>",source.indexOf('let liveRefreshTimer='))),state);
 state.scheduleLiveRefresh();callback();assert.equal(refreshes,0);fetching=false;callback();assert.equal(refreshes,1,'Queued update survives an in-flight read');

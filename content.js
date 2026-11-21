@@ -6,11 +6,12 @@ const R=globalThis.MoxRules;
 const clone=value=>JSON.parse(JSON.stringify(value));
 const deckId=()=>location.pathname.match(/^\/decks\/([A-Za-z0-9_-]+)/)?.[1]||null;
 const onDeckOverview=()=>/^\/decks\/[A-Za-z0-9_-]+\/?$/.test(location.pathname);
-const initial=await browser.storage.local.get(['mrd_settings','mrd_sidebar_position']);
+const initial=await browser.storage.local.get(['mrd_settings','mrd_sidebar_position','mrd_requirements_collapsed']);
 const featurePrefs=await browser.storage.local.get('mrd_features');
 if(featurePrefs?.mrd_features?.requirements===false)return;
 let state=R.sanitizeSettings(initial?.mrd_settings);
 let sidebarPosition=R.sidebarPosition(initial?.mrd_sidebar_position),sidebarDrag=null;
+let requirementsCollapsed=initial?.mrd_requirements_collapsed===true;
 let cards=[],capturedDeck=null,source='none',lastReadError='',status='Waiting for deck data…';
 let routeGeneration=0, evaluationCache=null,settingsChangeApplied=false,settingsSaveGeneration=0;
 let activePageId=deckId(),activeOverview=onDeckOverview(),fingerprint='',fetching=false,mode='metrics',expandedRule=null,placeAnchor=null,placeTimer=null,renderQueued=false,readAttempted=false,lastRead=0,sidebarCollapsed=false,editingRule=null;
@@ -84,6 +85,9 @@ function deckOverrides(){state.deckManualOverrides??=Object.create(null);return 
 // Graph location uses a bounded search of interactive elements, never Patreon banners.
 // Once placed, nothing scans the page until Moxfield replaces its graph container.
 function findGraphBlock(){
+ // The new editor exposes each analysis section independently of its chart markup.
+ const analysis=document.querySelector('[data-testid="deck-section-manaCurve"]');
+ if(analysis)return analysis;
  const marker=[...document.querySelectorAll('button,a')].find(el=>
   el.getClientRects().length && /hypergeometric calculator/i.test(el.textContent||''));
  if(!marker)return null;
@@ -115,6 +119,12 @@ function tryPlace(){
   graph.before(host);
   placeAnchor=graph;
   host.className='mrd-detail';
+  if(graph.getAttribute?.('data-testid')==='deck-section-manaCurve'){
+   host.className+=' mrd-native-section';
+   const nativeStyle=getComputedStyle(graph);
+   host.style.setProperty('--mrd-section-max-width',nativeStyle.maxWidth||'none');
+   host.style.setProperty('--mrd-section-padding',nativeStyle.paddingLeft||'12px');
+  }
  }else{
   placeAnchor=null;
   if(host.parentNode!==document.body)document.body.append(host);
@@ -130,6 +140,7 @@ function schedulePlacement(delay=0){
 }
 function scrollToDetails(ruleId=null){
  if(!onDeckOverview())return;
+ if(requirementsCollapsed)setRequirementsCollapsed(false);
  if(ruleId){expandedRule=ruleId;mode='metrics';queueRender();}
  if(!placeAnchor?.isConnected)schedulePlacement(0);
  requestAnimationFrame(()=>host.scrollIntoView({behavior:'smooth',block:'start'}));
@@ -181,6 +192,13 @@ function renderSidebar(results){
  wrapper.append(foot);
 }
 function queueRender(){if(renderQueued)return;renderQueued=true;requestAnimationFrame(()=>{renderQueued=false;render();});}
+function setRequirementsCollapsed(collapsed){
+ requirementsCollapsed=collapsed;
+ const body=content.querySelector('#mrd-requirements-body'),toggle=content.querySelector('.requirements-toggle');
+ if(body)body.hidden=collapsed;
+ if(toggle)toggle.setAttribute('aria-expanded',String(!collapsed));
+ browser.storage.local.set({mrd_requirements_collapsed:collapsed}).catch(error=>{status='Could not save section layout: '+error.message;queueRender();});
+}
 function getResults(){const profile=currentProfile();if(!evaluationCache||evaluationCache.cards!==cards||evaluationCache.profile!==profile){evaluationCache={cards,profile,results:R.evaluate(cards,profile.rules,state.countSections,deckOverrides(),state.tagOverrides)};}return evaluationCache.results;}
 function resultStatus(r){if(r.count<(Number(r.min)||0))return 'Below target';if(r.max!==null&&r.max!==''&&r.max!==undefined&&r.count>Number(r.max))return 'Above maximum';return 'Target met';}
 function requirementHelp(r){const help={spot:'Counts targeted answers such as removal or bounce. These help you deal with dangerous creatures and permanents before they take over.',wipes:'Counts sweepers that can clear multiple creatures or other threats. Keep some for boards that outgrow your spot removal.',counter:'Counts spells that counter opposing spells or abilities. They protect your plan from key plays that removal cannot stop.', 'artifact-removal':'Counts cards that can destroy or exile artifacts. This answers mana rocks and artifact-based engines.', 'enchantment-removal':'Counts answers to enchantments. These can remove persistent effects that creature removal cannot touch.', 'grave-hate':'Counts cards that exile or disrupt graveyards. Include them when opponents may rely on recursion or graveyard combos.',protection:'Counts effects that shield your commander or other important cards. Protection helps preserve your board and key investments.', 'combat-tricks':'Counts temporary combat boosts and surprise defenses. These support combat-focused plans and can help win creature exchanges.',draw:'Counts cards that draw cards. Draw helps refill your hand so you continue making plays after your opening resources are spent.',selection:'Counts effects that sift, scry, surveil, or inspect cards. Selection improves draw quality and helps find the right card for the moment.',tutors:'Counts cards that search your library for specific cards. Tutors make key pieces easier to find, though the default target stays modest.',recursion:'Counts effects that return or recast cards from your graveyard. Recursion gives important cards another use after they are spent or removed.',discard:'Counts cards that let you discard cards. Outlets enable graveyard strategies and can turn otherwise stranded cards into resources.',wheel:'Counts effects that make players discard and draw new hands. Wheels refill your hand and can disrupt opponents’ plans.',ramp:'Counts nonland cards that produce extra mana, put lands onto the battlefield, or allow additional land plays. Ramp helps you cast spells earlier than normal land drops allow.','mana-rocks':'Counts artifacts that produce mana. Rocks add ramp that is less dependent on creature survival.', 'mana-dorks':'Counts creatures that produce mana. Dorks provide early acceleration and can support creature synergies.',lands:'Counts lands in the selected deck sections. Lands let you make land drops and provide the mana needed to cast spells.','basic-lands':'Counts basic lands. Basics are reliable, searchable mana sources and are less exposed to nonbasic-land hate.','nonbasic-lands':'Counts lands that are not basic. Nonbasics add color fixing and utility beyond basic land types.',fixing:'Counts cards that help produce or find the colors you need. Fixing reduces the chance of being unable to cast colored spells.',mv0:'Counts cards with mana value zero. These affect the low end of your curve and include free spells and other zero-cost cards.',mv1:'Counts one-mana cards. One-drops provide early plays and help keep the deck active in the first turns.',mv2:'Counts two-mana cards. Two-drops help fill early turns and smooth the curve.',mv3:'Counts three-mana cards. This tracks the middle of your curve, where many utility and value plays sit.',mv4:'Counts four-mana cards. This helps monitor how many mid-to-high-cost plays compete for your mana.',mv5:'Counts cards with mana value five or greater. These are powerful top-end plays, but too many can clog your opening hand.','mv1-2':'Counts cards costing one or two mana. Cheap plays keep your early turns productive and give you options while developing.', 'mv1-3':'Counts cards costing one to three mana. This tracks the early curve and helps ensure you have plays before the later turns.',creatures:'Counts creature cards. Creatures provide attackers, blockers, and bodies for creature-based strategies.',instants:'Counts instants. Instants can be used at flexible times and support interaction during opponents’ turns.',sorceries:'Counts sorceries. Sorceries provide one-time effects during your own main phases and may support spells-matter plans.',artifacts:'Counts artifact cards. Artifacts can provide mana, utility, or synergy, depending on your deck.',enchantments:'Counts enchantment cards. Enchantments offer persistent effects and can support enchantment-focused strategies.',planeswalkers:'Counts planeswalkers. They provide repeatable abilities and can draw attacks away from you.','token-makers':'Counts cards that create tokens. Token makers build a board and support go-wide, sacrifice, and token synergies.',sacrifice:'Counts sacrifice outlets. Outlets let you control when creatures or other permanents die, enabling death triggers and sacrifice payoffs.',reanimation:'Counts effects that return creatures from graveyards to the battlefield. Reanimation provides a way to deploy large threats efficiently.',mill:'Counts effects that put cards from a library into a graveyard. Mill can pressure opponents or support graveyard strategies.', 'self-mill':'Counts effects that put your own library cards into your graveyard. Self-mill stocks the graveyard for recursion and reanimation.', 'life-gain':'Counts cards that gain life. These support lifegain payoffs and can help stabilize against aggressive decks.', 'life-loss':'Counts cards that make opponents lose life. These provide reach and support drain or life-loss strategies.', '+1-counters':'Counts cards that create or multiply +1/+1 counters. Counter support grows creatures and enables counter synergies.',evasion:'Counts cards that make attackers harder to block. Evasion helps creatures connect and deal combat damage.',haste:'Counts cards that grant haste. Haste lets creatures attack or use tap abilities sooner.', 'extra-combat':'Counts effects that create additional combat phases. These multiply attack opportunities for combat-focused decks.',stax:'Counts effects that tax or restrict opponents. These can slow opposing strategies and buy time for your plan.', 'grave-payoffs':'Counts cards rewarded by graveyard size, deaths, or cards leaving the graveyard. Payoffs turn graveyard activity into value.'};return help[r.presetId||r.id]||`Counts cards that match the conditions for “${r.name}.” This target helps you check that the deck includes enough of this role to support its plan.`;}
@@ -190,14 +208,23 @@ function render(){
  const results=getResults();
  const total=cards.filter(c=>state.countSections.includes(c.section)).reduce((sum,c)=>sum+c.qty,0);
  renderSidebar(results);
- const panel=make('section',{class:'panel'}),head=make('header',{class:'header'});
+ const panel=make('section',{class:'panel requirements-section'}),head=make('header',{class:'header'});
  content.append(panel);panel.append(head);
- head.append(make('div',{class:'header-title'},make('h2',{text:'Deck requirements'})));
+ const toggle=btn('',()=>setRequirementsCollapsed(!requirementsCollapsed),'requirements-toggle');
+ toggle.setAttribute('aria-expanded',String(!requirementsCollapsed));toggle.setAttribute('aria-controls','mrd-requirements-body');
+ const chevron=document.createElementNS('http://www.w3.org/2000/svg','svg');
+ for(const [key,value] of Object.entries({viewBox:'0 0 24 24',width:24,height:24,fill:'none',stroke:'currentColor','stroke-width':1.8,'aria-hidden':'true'}))chevron.setAttribute(key,String(value));
+ const path=document.createElementNS(chevron.namespaceURI,'path');path.setAttribute('d','m3 4 9 9 9-9M3 12l9 9 9-9');chevron.append(path);
+ toggle.append(chevron,make('span',{text:'Deck requirements'}));
+ head.append(make('div',{class:'header-title'},make('h2',{},toggle)));
  const actions=make('div',{class:'actions'});head.append(actions);
+ if(featurePrefs?.mrd_features?.explorer!==false&&featurePrefs?.mrd_features?.edhrec!==false){
+  actions.append(btn('Card Explorer',async()=>{try{if(!globalThis.MoxExplorer?.open||await globalThis.MoxExplorer.open()===false)throw Error('Card Explorer is unavailable. Reload the extension and refresh Moxfield.');}catch(error){status=error.message;setRequirementsCollapsed(false);queueRender();}},'compact requirements-explorer'));
+ }
  const refreshAction=btn('↻',()=>refresh(true),'icon-button');refreshAction.title='Refresh deck';refreshAction.setAttribute('aria-label','Refresh deck');
- const settingsAction=btn(mode==='settings'?'✓':'⚙',()=>{mode=mode==='settings'?'metrics':'settings';if(mode==='settings')settingsChangeApplied=false;expandedRule=null;queueRender();},'icon-button'+(mode==='settings'&&settingsChangeApplied?' saved':''));settingsAction.title=mode==='settings'?(settingsChangeApplied?'Change applied. Select to return to deck requirements.':'Return to deck requirements'):'Settings';settingsAction.setAttribute('aria-label',mode==='settings'?(settingsChangeApplied?'Change applied. Return to deck requirements':'Return to deck requirements'):'Settings');
+ const settingsAction=btn(mode==='settings'?'✓':'⚙',()=>{setRequirementsCollapsed(false);mode=mode==='settings'?'metrics':'settings';if(mode==='settings')settingsChangeApplied=false;expandedRule=null;queueRender();},'icon-button'+(mode==='settings'&&settingsChangeApplied?' saved':''));settingsAction.title=mode==='settings'?(settingsChangeApplied?'Change applied. Select to return to deck requirements.':'Return to deck requirements'):'Settings';settingsAction.setAttribute('aria-label',mode==='settings'?(settingsChangeApplied?'Change applied. Return to deck requirements':'Return to deck requirements'):'Settings');
  actions.append(refreshAction,settingsAction);
- const body=make('div',{class:'body'});panel.append(body);
+ const body=make('div',{class:'body',id:'mrd-requirements-body'});body.hidden=requirementsCollapsed;panel.append(body);
  const toolbar=make('div',{class:'toolbar'}),tools=make('div',{class:'tools'});body.append(toolbar);toolbar.append(tools);
  tools.append(make('label',{text:'Profile'}),picker(state.profiles.map(p=>[p.id,p.name]),currentProfile().id,id=>{state.perDeck[deckId()]=id;save();queueRender();}),btn('Settings',()=>{settingsChangeApplied=false;mode='settings';queueRender();},'compact'));
  body.append(make('p',{class:'hint preset-guidance',text:'Presets are general guidelines and may not be optimal for every deck.'}));

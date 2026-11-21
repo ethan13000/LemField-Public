@@ -4,6 +4,14 @@
  const boards=['mainboard','sideboard','maybeboard'];
  const validID=value=>typeof value==='string'&&/^[A-Za-z0-9_-]{1,100}$/.test(value);
  const key=row=>row.section+':'+row.id;
+ // The new editor repeats card links in analysis panels and commander groups.
+ // Only a matching board-main row key and card hash identify an editable entry.
+ function nativeIdentity(rowKey,hash){
+  const match=typeof rowKey==='string'&&rowKey.match(/^(mainboard|sideboard|maybeboard)-main-\d+\|([A-Za-z0-9_-]{1,100})$/);
+  return match&&validID(hash)&&match[2]===hash?{section:match[1],id:hash}:null;
+ }
+ const cleanName=value=>String(value||'').normalize('NFKC').replace(/\s+/g,' ').trim().toLowerCase();
+ const matchesName=(row,name)=>(row.names||[row.name]).some(alias=>cleanName(alias)===cleanName(name));
  function rows(raw){
   const source=raw?.boards||raw||{},result=[];
   for(const section of boards){
@@ -15,7 +23,9 @@
     if(!validID(id)||!Number.isInteger(quantity)||quantity<1||quantity>999||typeof card.name!=='string')continue;
     const properties={};for(const field of ['finish','isFoil','isAlter','isProxy','useCmcOverride','useManaCostOverride','useColorIdentityOverride','cmcOverride','manaCostOverride','colorIdentityOverride'])if(entry[field]!==undefined)properties[field]=entry[field];
     const custom=['tags','categories','userTags'].some(f=>entry[f]&&(typeof entry[f]==='object'?Object.keys(entry[f]).length>0:typeof entry[f]==='string'&&entry[f].trim().length>0))||Object.keys(properties).some(f=>/Override$/.test(f)&&properties[f]!=null&&properties[f]!==false);
-    result.push({section,id,name:card.name,quantity,properties,custom});
+    // Native rows can display one face while the API names the whole card.
+    const names=[...new Set([card.name,...card.name.split(/\s*\/\/\s*/),...(card.card_faces||card.cardFaces||[]).map(face=>face?.name)].filter(name=>typeof name==='string'&&name.trim()))];
+    result.push({section,id,name:card.name,...(names.length>1?{names}:{}),quantity,properties,custom});
    }
   }
   return result;
@@ -39,5 +49,5 @@
   return {operation,destination:operation==='move'?destination:null,entries};
  }
  const signature=raw=>JSON.stringify(rows(raw).map(row=>[key(row),row.quantity,row.properties,row.custom]).sort((a,b)=>a[0].localeCompare(b[0])));
- globalThis.MoxDeckSelection={boards,key,rows,plan,signature};
+ globalThis.MoxDeckSelection={boards,key,rows,plan,signature,matchesName,nativeIdentity};
 })();

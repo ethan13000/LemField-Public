@@ -3,6 +3,8 @@
 'use strict';
 const prefs=await browser.storage.local.get('mrd_features');if(prefs?.mrd_features?.pdf===false)return;
 const button=document.createElement('button');button.type='button';button.textContent='Print';button.id='mrd-deck-print';button.setAttribute('data-mrd-owned','');
+const menuItem=document.createElement('li');menuItem.setAttribute('data-mrd-owned','deck-print-item');
+const remove=()=>{button.remove();menuItem.remove();};
 const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');icon.setAttribute('viewBox','0 0 24 24');icon.setAttribute('width','20');icon.setAttribute('height','20');icon.setAttribute('fill','none');icon.setAttribute('stroke','currentColor');icon.setAttribute('stroke-width','1.8');icon.setAttribute('stroke-linecap','round');icon.setAttribute('stroke-linejoin','round');icon.setAttribute('aria-hidden','true');icon.style.flexShrink='0';
 const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d','M6 9V3h12v6M6 17H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2M6 14h12v7H6zM18 12h.01');icon.append(path);
 const caption=document.createElement('span');caption.textContent='Print';button.replaceChildren(icon,caption);
@@ -23,8 +25,20 @@ button.addEventListener('click',async()=>{
  finally{button.disabled=false;}
 });
 function place(){
- if(!/^\/decks\/[A-Za-z0-9_-]+\/?$/.test(location.pathname)){button.remove();return;}
+ if(!/^\/decks\/[A-Za-z0-9_-]+\/?$/.test(location.pathname)){remove();return;}
  const main=document.querySelector('main')||document.body;
+ // New editor actions are list items; inserting a raw button under the UL is invalid.
+ // Stable menu IDs also avoid matching the separate Buy Deck control in Prices.
+ const menuActions=[...main.querySelectorAll('[data-testid="deck-menu-playtest"],[data-testid="deck-menu-more-toggle"]')].filter(node=>!node.closest('[data-mrd-owned]'));
+ const nativeMenu=menuActions.find(node=>node.getAttribute('data-testid')==='deck-menu-playtest')||menuActions[0];
+ const nativeItem=nativeMenu?.closest('li');
+ if(nativeItem?.parentElement?.matches('ul,ol')){
+  matchButton(nativeMenu);menuItem.className='nav-item';
+  if(button.parentElement!==menuItem)menuItem.append(button);
+  if(menuItem.previousElementSibling!==nativeItem)nativeItem.after(menuItem);
+  button.style.marginLeft='0';button.style.marginRight='0';return;
+ }
+ menuItem.remove();
  const actions=[...main.querySelectorAll('button,a,[role="button"]')].filter(node=>node!==button&&node.getClientRects().length&&!node.closest('[data-mrd-owned],.mrd-edhrec,.mrd-edh-launcher,.dropdown-menu,[role="menu"]'));
  const label=node=>(node.textContent||node.getAttribute('aria-label')||node.getAttribute('title')||'').replace(/\s+/g,' ').trim();
  const native=actions.find(node=>/^playtest\b/i.test(label(node)))||actions.find(node=>/^buy deck\b/i.test(label(node)))||actions.find(node=>/^primer$/i.test(label(node)));
@@ -35,7 +49,7 @@ function place(){
   // Keep breathing room on both sides, including inside native dropdown wrappers.
   button.style.marginLeft='24px';
   button.style.marginRight='0';
- }else button.remove();
+ }else remove();
 }
 let timer=null;
 const schedule=()=>{if(timer!==null)return;timer=setTimeout(async()=>{timer=null;place();},150);};

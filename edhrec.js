@@ -979,11 +979,6 @@ function placePanel(view){
 }
 const launchers=new Map();
 const nativeEDHREC=source=>!legacyPrintingScope(source)&&!source.closest('.mrd-edhrec,.mrd-edh-launcher')&&/^(?:browse\s+)?edhrecs?(?:\s+(?:cards|recommendations))?$/i.test((source.textContent||'').trim().replace(/\s+/g,' '));
-function matchSearchButton(source,target){
- const style=getComputedStyle(source);
- for(const property of ['font-family','font-size','font-weight','line-height','letter-spacing','color','text-transform'])target.style.setProperty(property,style.getPropertyValue(property));
- target.style.background='transparent';target.style.border='0';target.style.borderRadius='0';target.style.boxShadow='none';target.style.padding='0';target.style.minHeight='0';target.style.verticalAlign='baseline';target.style.textDecoration='underline';target.style.cursor='pointer';
-}
 function launcherSearchInput(source){
  if(!/^\/decks\//.test(location.pathname))return null;
  const scope=source.closest('[role="dialog"],.modal,main')||document;
@@ -999,25 +994,24 @@ function searchFieldGroup(input){
  return input;
 }
 function placeLauncher(source,host,input){
- const open=host.shadowRoot.querySelector('button'),separator=host.shadowRoot.querySelector('.edh-launcher-separator');host.classList.toggle('mrd-edh-search-launcher',!!input);open.classList.toggle('edh-search-launch',!!input);separator.hidden=!!input;
+ const open=host.shadowRoot.querySelector('button'),separator=host.shadowRoot.querySelector('.edh-launcher-separator');host.classList.toggle('mrd-edh-search-launcher',!!input);open.classList.toggle('edh-search-launch',true);open.removeAttribute('style');separator.hidden=true;
  if(input){
-  open.removeAttribute('style');const anchor=searchFieldGroup(input);
+  const anchor=searchFieldGroup(input);
   let row=anchor.parentElement;
   if(!row?.classList.contains('mrd-edh-search-row')){
    row=el('div',null,'mrd-edh-search-row');Object.assign(row.style,{display:'flex',alignItems:'center',gap:'8px',width:'100%',minWidth:'0'});
    anchor.before(row);row.append(anchor);Object.assign(anchor.style,{flex:'1 1 0%',minWidth:'0'});
   }
   if(host.parentElement!==row||host.nextSibling!==anchor)anchor.before(host);
- }else{if(source.nextSibling!==host)source.after(host);matchSearchButton(source,open);}
+ }else{if(source.nextSibling!==host)source.after(host);}
 }
-function createExplorerLauncher(source,searchInput){
-  const host=el('span');host.className='mrd-edh-launcher';const shadow=host.attachShadow({mode:'open'}),css=el('link');css.rel='stylesheet';css.href=globalThis.MoxDashboardStyleURL;
-  const open=button('Card Explorer',async()=>{
+async function openExplorer(source,host){
+ if(featurePrefs?.mrd_features?.explorer===false||featurePrefs?.mrd_features?.edhrec===false)return false;
    const existing=dialogHost().shadowRoot.querySelector('dialog[open]');if(existing){existing.focus();return;}
-   if(current?.data&&(current.isPage||current.scope.contains(source))){advanced(current,current.data);return;}
+   if(current?.data&&(current.isPage||current.scope?.contains(source))){advanced(current,current.data);return;}
    let name=globalThis.MoxDecks?.context?.()?.name;
    let slug=name?E.slug(name):null;
-   if(!slug&&source.tagName==='A'){try{const u=new URL(source.href);if(['edhrec.com','www.edhrec.com'].includes(u.hostname))slug=u.pathname.match(/^\/(?:commanders|cards)\/([a-z0-9-]+)\/?$/)?.[1];}catch{}}
+   if(!slug&&source?.tagName==='A'){try{const u=new URL(source.href);if(['edhrec.com','www.edhrec.com'].includes(u.hostname))slug=u.pathname.match(/^\/(?:commanders|cards)\/([a-z0-9-]+)\/?$/)?.[1];}catch{}}
    const view={host};const box=dialog(view,'Card Explorer');
    const input=el('input');input.placeholder='Card or commander name';input.setAttribute('aria-label','Card or commander name');if(name)input.value=name;
    const status=el('p',slug?'Loading recommendations…':'Enter a card or commander name.','hint');status.setAttribute('role','status');
@@ -1036,17 +1030,28 @@ function createExplorerLauncher(source,searchInput){
      }catch(error){if(box.modal.isConnected){go.disabled=false;status.textContent=error.message||'Could not read your commander. Enter a card or commander name.';}}
     })();
    }else if(slug)load();
-  });const separator=el('span',' · ','edh-launcher-separator');separator.setAttribute('aria-hidden','true');shadow.append(css,separator,open);placeLauncher(source,host,searchInput);return host;
+
+}
+globalThis.MoxExplorer={open:()=>openExplorer(null,dialogHost())};
+function createExplorerLauncher(source,searchInput){
+  const host=el('span');host.className='mrd-edh-launcher';const shadow=host.attachShadow({mode:'open'}),css=el('link');css.rel='stylesheet';css.href=globalThis.MoxDashboardStyleURL;
+  const open=button('Card Explorer',()=>openExplorer(source,host));const separator=el('span',' · ','edh-launcher-separator');separator.setAttribute('aria-hidden','true');shadow.append(css,separator,open);placeLauncher(source,host,searchInput);return host;
 }
 let persistentExplorer=null;
 function persistentExplorerInput(){
  if(!/^\/decks\//.test(location.pathname)||featurePrefs?.mrd_features?.explorer===false)return null;
  return [...document.querySelectorAll('input[placeholder*="find and add" i]')].filter(input=>visible(input)&&!legacyPrintingScope(input)&&!input.closest('[data-mrd-owned],.mrd-edhrec,.mrd-edh-launcher')).at(-1)||null;
 }
+function persistentExplorerToolbar(){
+ if(!/^\/decks\/[A-Za-z0-9_-]+\/?$/.test(location.pathname)||featurePrefs?.mrd_features?.explorer===false)return null;
+ // New editor pages do not have the legacy Find and add field or an EDHREC link.
+ return [...document.querySelectorAll('[data-testid="deck-view-options-open"]')].find(node=>visible(node)&&!node.closest('[data-mrd-owned],.mrd-edhrec,.mrd-edh-launcher'))||null;
+}
 function injectLaunchers(){
  const supported=/^\/(cards|decks)\//.test(location.pathname);
  const persistentInput=persistentExplorerInput();
- if(persistentInput){if(!persistentExplorer)persistentExplorer=createExplorerLauncher(persistentInput,persistentInput);else placeLauncher(persistentInput,persistentExplorer,persistentInput);}
+ const persistentSource=persistentInput||persistentExplorerToolbar();
+ if(persistentSource){if(!persistentExplorer)persistentExplorer=createExplorerLauncher(persistentSource,persistentInput);else placeLauncher(persistentSource,persistentExplorer,persistentInput);}
  else if(persistentExplorer){persistentExplorer.remove();persistentExplorer=null;}
  const usedInputs=new Set(persistentInput?[persistentInput]:[]);
  for(const [source,host] of launchers){

@@ -6,6 +6,20 @@
 .panel{width:100%;background:transparent;border:1px solid #514657;border-radius:6px;padding:0 16px;box-shadow:none}
 .header{display:flex;align-items:center;gap:14px;padding:13px 0 12px;border-bottom:1px solid #37333a}
 .header-title{flex:1;min-width:0}.header-title h2{font-size:20px;letter-spacing:0;font-weight:650;color:#efedf0;margin:0;line-height:1.4}
+.requirements-section{padding:0;border:0;border-top:1px solid #353535;border-radius:0}
+.requirements-section>.header{padding:18px 14px;flex-wrap:wrap;border-bottom:1px solid #353535}
+.requirements-section .header-title h2{font-size:28px;font-weight:700}
+button.requirements-toggle{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:0;border:0;background:transparent;color:inherit;font:inherit;line-height:1.35}
+button.requirements-toggle:hover{background:transparent;color:#fff}
+.requirements-toggle svg{flex:none;color:var(--purple)}
+.requirements-toggle[aria-expanded=false] svg{transform:rotate(-90deg)}
+.requirements-section>.body{padding:20px;background:#252525;border:1px solid #333;border-top:0}
+.requirements-section>.body[hidden]{display:none}
+.requirements-section .requirements-explorer{color:#fff;border:1px solid #805594;border-radius:5px;background:#623478;padding:8px 13px;min-height:36px;font-weight:650;text-decoration:none;white-space:nowrap}
+.requirements-section .requirements-explorer:hover{border-color:#b989d1;background:#76458d;color:#fff}
+:host(.mrd-native-section){box-sizing:border-box!important;width:100%!important;max-width:var(--mrd-section-max-width,none)!important;flex:0 1 auto!important;margin:0 auto!important;padding:0 var(--mrd-section-padding,12px)}
+:host(.mrd-native-section) .requirements-section>.header{padding-left:0;padding-right:0}
+@media(max-width:750px){.requirements-section .header-title h2{font-size:23px}.requirements-section>.header{padding:15px 10px;gap:10px}.requirements-section>.body{padding:14px}.requirements-toggle{gap:10px}}
 .actions,.tools,.field,.footer{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.actions{gap:5px;margin-left:auto}
 button,select,input,textarea{font:inherit;max-width:100%;min-width:0;color:#e4dfe7;background:#28262b;border:1px solid #514657;border-radius:3px;font-size:14px}
 button,select{padding:6px 9px}button{cursor:pointer}button:hover{background:#332b37;color:#f4e8fa}button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--purple);outline-offset:2px}button:disabled{opacity:.5;cursor:not-allowed}

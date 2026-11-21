@@ -1,5 +1,11 @@
 # LemField
 
+**Latest release candidate: [1.1 Alpha 2](PATCH_NOTES_1.1_ALPHA2.md)** ? new Moxfield editor compatibility, collapsible requirements and filled Card Explorer buttons.
+
+Store-upload candidates: [Firefox](downloads/store-1.1-alpha2/LemField-1.1-Alpha-2-Firefox.zip) ? [Chromium](downloads/store-1.1-alpha2/LemField-1.1-Alpha-2-Chromium.zip) ? [Reviewer source](downloads/store-1.1-alpha2/LemField-1.1-Alpha-2-source.zip) ? [Checksums](downloads/store-1.1-alpha2/SHA256SUMS.txt). Build with `node scripts/build-release.cjs --alpha2 --store`. Both packages display LemField and version 1.1.0.2. The Firefox store candidate retains the project-recorded ID `moxfield-plus@ethan13000`; confirm that matches the existing AMO listing before upload. No store submission or approval is claimed.
+
+Temporary-install test builds: [Firefox](downloads/LemField-1.1-Alpha-2-Firefox.zip) ? [Chromium](downloads/LemField-1.1-Alpha-2-Chromium.zip). Build with `npm run build:alpha2`; the Firefox test build uses the separate development ID. The original 1.1 downloads below remain available.
+
 LemField 1.1 is an independent Moxfield deckbuilding companion for Firefox 140+ and Chromium 120+. It is not affiliated with or endorsed by Moxfield, EDHREC, Scryfall, or Wizards of the Coast.
 
 - Live deck requirements, editable strategy profiles and improved land-ramp detection.

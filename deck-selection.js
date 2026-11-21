@@ -5,6 +5,7 @@
  const deckID=()=>location.pathname.match(/^\/decks\/([A-Za-z0-9_-]+)\/?$/)?.[1]||null;
  const clean=name=>String(name||'').normalize('NFKC').trim().toLowerCase();
  const selected=new Map(),controls=new Map(),groups=new Map();let id=null,raw=null,busy=false,loading=false,epoch=0,timer=null,bar=null,status=null,count=null,destinationPicker=null,actionButtons=[],feedback=null;
+ const modernEditor=()=>document.querySelectorAll('[data-testid="deck-view-table-row"],[data-testid="deck-view-options-group-by"]').length>0;
  const ignored='[data-mrd-owned],#mrd-root,#mrd-sidebar,[role="dialog"],dialog,[role="menu"],.dropdown-menu,.mrd-edhrec';
  const checkboxStyle=make('style');checkboxStyle.setAttribute('data-mrd-owned','deck-selection-style');
  checkboxStyle.textContent=`
@@ -80,21 +81,29 @@
   finally{if(started){busy=false;selected.clear();raw=null;update();if(deckID()!==id)refresh();}/* Fresh read required after writes; no automatic retry. */}
  }
  function resolve(anchor,available,allRows){
+  const native=anchor.closest('[data-testid="deck-view-table-row"]');
+  if(native){
+   const identity=model.nativeIdentity(native.getAttribute('data-row-key'),native.getAttribute('data-hash'));
+   if(!identity)return null;
+   const matches=available.filter(row=>model.key(row)===model.key(identity));return matches.length===1?matches[0]:null;
+  }
   const name=anchor.getAttribute('data-card-name')||anchor.textContent.trim();
   const scope=anchor.closest('[data-card-id]'),explicit=scope?.getAttribute('data-card-id');
-  if(allRows.filter(row=>explicit?row.id===explicit:clean(row.name)===clean(name)).length!==1)return null;
-  const matches=available.filter(row=>explicit?row.id===explicit:clean(row.name)===clean(name));return matches.length===1?matches[0]:null;
+  if(allRows.filter(row=>explicit?row.id===explicit:model.matchesName(row,name)).length!==1)return null;
+  const matches=available.filter(row=>explicit?row.id===explicit:model.matchesName(row,name));return matches.length===1?matches[0]:null;
  }
  function scanGroups(){
   // Follow rendered group boundaries, rather than guessing membership from card types/tags.
   const headingText=node=>node.textContent.replace(/\s+/g,' ').trim();
-  const candidates=[...document.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"],a,button,div,span,strong')].filter(node=>!node.closest(ignored)&&/^.{1,100}\s*\(\s*\d+\s*\)\s*[▾▼⌄]?\s*$/.test(headingText(node))&&!node.querySelector('a[href*="/cards/"],[data-card-name]'));
+  const nativeMode=modernEditor();
+  const candidates=[...document.querySelectorAll(nativeMode?'[data-testid="deck-view-header-options-title"]':'h1,h2,h3,h4,h5,h6,[role="heading"],a,button,div,span,strong')].filter(node=>!node.closest(ignored)&&(nativeMode||/^.{1,100}\s*\(\s*\d+\s*\)\s*[▾▼⌄]?\s*$/.test(headingText(node)))&&!node.querySelector('a[href*="/cards/"],[data-card-name]'));
   const headings=candidates.filter(node=>!candidates.some(other=>other!==node&&node.contains(other))).map(node=>({node,anchor:node.closest('button,a,[role="button"]')||node}));
   const seen=new Set();
   for(const {node,anchor} of headings){
    if(seen.has(anchor))continue;
-   let container=anchor.parentElement,entries=[];
-   for(let depth=0;container&&container!==document.body&&depth<8;depth++,container=container.parentElement){
+   let container=nativeMode?anchor.closest('ul'):anchor.parentElement,entries=[];
+   if(nativeMode){if(container)entries=[...controls].filter(([entry])=>entry.closest('ul')===container);}
+   else for(let depth=0;container&&container!==document.body&&depth<8;depth++,container=container.parentElement){
     entries=[...controls].filter(([entry])=>container.contains(entry));if(entries.length)break;
    }
    if(!entries.length)continue;
@@ -116,14 +125,17 @@
  function scan(){
   if(!id||deckID()!==id||!raw||busy)return;
   toolbar();const allRows=model.rows(raw),available=allRows,seen=new Set();
-  for(const anchor of document.querySelectorAll('a[href*="/cards/"],[data-card-name]')){
+  const nativeEntries=[...document.querySelectorAll('[data-testid="deck-view-table-row"]')];
+  const anchors=modernEditor()?nativeEntries.map(entry=>entry.querySelector('[data-testid="deck-view-table-row-name"]')||entry.querySelector('a[href*="/cards/"],[data-card-name]')).filter(Boolean):document.querySelectorAll('a[href*="/cards/"],[data-card-name]');
+  for(const anchor of anchors){
    if(anchor.closest(ignored)||anchor.querySelector('img'))continue;
    const row=resolve(anchor,available,allRows);if(!row)continue;
    // Require a local native row action so unrelated card links are never selectable.
-   let parent=anchor.parentElement,entry=null;
-   for(let depth=0;parent&&parent!==document.body&&depth<4;depth++,parent=parent.parentElement){
+   const native=anchor.closest('[data-testid="deck-view-table-row"]');
+   let parent=anchor.parentElement,entry=native;
+   if(!native)for(let depth=0;parent&&parent!==document.body&&depth<4;depth++,parent=parent.parentElement){
     const names=[...parent.querySelectorAll('a[href*="/cards/"],[data-card-name]')].map(node=>clean(node.getAttribute('data-card-name')||node.textContent)).filter(Boolean);
-    if(names.some(name=>name!==clean(row.name)))break;
+    if(names.some(name=>!model.matchesName(row,name)))break;
     if(parent.querySelector('button,[role="button"]')){entry=parent;break;}
    }
    if(!entry||seen.has(entry))continue;seen.add(entry);

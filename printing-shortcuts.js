@@ -6,10 +6,18 @@ let context=null;
 const owned=node=>node?.closest?.('[data-mrd-owned],.mrd-edhrec,.mrd-edh-launcher,#mrd-root,#mrd-sidebar');
 const clean=value=>String(value||'').replace(/^card (?:art|image) (?:for|of)\s+/i,'').replace(/\s+\([A-Z0-9]{2,8}\)\s*#?\d+.*$/,'').trim();
 function namedCard(name,target){
- const scope=target.closest?.('.deckview-image-wrapper,[data-card-id],tr,[role="row"],.card-item,.cardItem')||target;
+ const scope=target.closest?.('[data-testid="deck-view-table-row"],.deckview-image-wrapper,[data-card-id],tr,[role="row"],.card-item,.cardItem')||target;
  const image=target.matches?.('img')?target:scope.querySelector?.('img');
- const original=image?.dataset?.mrdOriginalSrc||image?.src||'',id=scope.dataset?.mrdSourceCardId||scope.getAttribute?.('data-card-id')||original.match(/\/card-([A-Za-z0-9_-]+)-(?:normal|large|small)\./)?.[1];
- return {name,...(id&&/^[A-Za-z0-9_-]+$/.test(id)?{cardId:id}:{})};
+ const rowKey=scope.getAttribute?.('data-row-key')||'',hash=scope.getAttribute?.('data-hash'),rowID=rowKey.split('|');
+ if(hash&&(!/^[A-Za-z0-9_-]{1,100}$/.test(hash)||rowID.length===2&&rowID[1]!==hash))return null;
+ const original=image?.dataset?.mrdOriginalSrc||image?.src||'',id=hash||scope.dataset?.mrdSourceCardId||scope.getAttribute?.('data-card-id')||original.match(/\/card-([A-Za-z0-9_-]+)-(?:normal|large|small)\./)?.[1];
+ let section;
+ if(id&&rowID.length===2&&rowID[1]===id){
+  if(/^mainboard-commander-\d+$/.test(rowID[0]))section='commanders';
+  else if(/^(?:mainboard|maybeboard)-main-\d+$/.test(rowID[0]))section=rowID[0].split('-')[0];
+  else if(rowID[0]==='tokens')section='tokens';
+ }
+ return {name,...(id&&/^[A-Za-z0-9_-]{1,100}$/.test(id)?{cardId:id}:{}),...(section?{section}:{})};
 }
 function cardAt(target){
  if(!target?.closest||owned(target))return null;
@@ -17,7 +25,7 @@ function cardAt(target){
  if(named){const name=clean(named.getAttribute('data-card-name'));if(name&&name.length<=160)return namedCard(name,target);}
  // Stay within the nearest card row/tile; never take another card from the page.
  const anchor=target.closest('a[href*="/cards/"]');
- const scope=anchor||target.closest('[data-card-id],[data-card],tr,[role="row"],.card-item,.cardItem,.card-grid-item,.cardGridItem')||target;
+ const scope=anchor||target.closest('[data-testid="deck-view-table-row"],[data-card-id],[data-card],tr,[role="row"],.card-item,.cardItem,.card-grid-item,.cardGridItem')||target;
  const cardLink=anchor||scope.querySelector?.('a[href*="/cards/"]');
  const image=target.matches?.('img[alt]')?target:scope.querySelector?.('img[alt]');
  const label=scope.querySelector?.('[data-card-name]');
@@ -46,10 +54,13 @@ window.addEventListener('contextmenu',event=>{
 },true);
 window.addEventListener('click',event=>{
  if(!enabled||replaying||event.altKey||!supported()||owned(event.target)||!globalThis.MoxPrintings)return;
+ const trigger=event.target.closest?.('[data-testid="deck-view-table-row-options-trigger"]');
+ if(trigger){context=cardAt(trigger);if(context)context.nativeTarget=trigger.closest?.('[data-testid="deck-view-table-row"]')?.querySelector?.('[data-testid="deck-view-table-row-name"]')||trigger;return;}
  const action=event.target.closest?.('[role="menuitem"],.dropdown-item,.react-contexify__item,.react-contextmenu-item,[data-radix-collection-item],button,a');
- const label=(action?.getAttribute('aria-label')||action?.textContent||'').trim().replace(/\s+/g,' ').replace(/\s*(?:ctrl|control|⌃)\s*\+?\s*(?:shift|⇧).*$/i,'').trim();
- if(!/^(?:(?:view|browse|change|switch(?:ing)?|select|choose|other|all)\s+)?printings?(?:\s*\(\d+\))?$/i.test(label)){context=null;return;}
- const menu=action.closest('[role="menu"],.dropdown-menu,[data-radix-menu-content]');
+ const menu=action?.closest('[role="menu"],.dropdown-menu,[data-radix-menu-content]');
+ const icon=action?.querySelector?.('[aria-label],[data-tooltip]');
+ const label=[action?.getAttribute('aria-label'),action?.getAttribute('data-tooltip'),action?.textContent,icon?.getAttribute('aria-label'),icon?.getAttribute('data-tooltip')].map(value=>String(value||'').trim()).find(Boolean)?.replace(/\s+/g,' ').replace(/\s*(?:ctrl|control|\u2303)\s*\+?\s*(?:shift|\u21e7).*$/i,'').trim()||'';
+ if(!/^(?:(?:view|browse|change|switch(?:ing)?|select|choose|other|all)\s+)?printings?(?:\s*\(\d+\))?$/i.test(label)){if(!(context&&menu&&/^edit(?: card)?$/i.test(label)))context=null;return;}
  const card=menu&&context?context:cardAt(action)||context;
  if(!card)return;
  cancel(event);context=null;
@@ -58,11 +69,12 @@ window.addEventListener('click',event=>{
  globalThis.MoxPrintings.open(card);
 },true);
 window.addEventListener('popstate',()=>{context=null;});
+window.addEventListener('keydown',event=>{if(event.key==='Escape')context=null;});
 window.addEventListener('message',event=>{if(event.source===window&&event.origin===location.origin&&event.data?.source==='mrd-route-v3')context=null;});
 function nativeTarget(card){
- const matches=node=>{const found=cardAt(node);return node?.isConnected!==false&&clean(found?.name).toLowerCase()===clean(card.name).toLowerCase()&&(!card.cardId||found?.cardId===card.cardId);};
+ const matches=node=>{const found=cardAt(node);return node?.isConnected!==false&&clean(found?.name).toLowerCase()===clean(card.name).toLowerCase()&&(!card.cardId||found?.cardId===card.cardId)&&(!card.section||found?.section===card.section);};
  if(card.nativeTarget&&matches(card.nativeTarget))return card.nativeTarget;
- return [...document.querySelectorAll('[data-card-name],a[href*="/cards/"],img[alt]')].find(matches)||null;
+ return [...document.querySelectorAll('[data-testid="deck-view-table-row"],[data-card-name],a[href*="/cards/"],img[alt]')].find(matches)||null;
 }
 function replay(target){
  replaying=true;

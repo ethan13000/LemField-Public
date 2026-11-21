@@ -56,10 +56,13 @@ async function openMenu(opener){
 }
 function scan(){
  if(!deckId())dialog?.dismiss?.();
+ const deckView=document.querySelector('.deckview[aria-labelledby="section-decklist-header"]');
+ const modern=!!deckView||!!document.querySelector('[data-testid="deck-menu-playtest"],[data-testid="deck-menu-more-toggle"]');
+ const inScope=node=>!modern||!!deckView?.contains(node);
  const isLabel=node=>/^Lands\s*\(\s*\d+\s*\)\s*[▾▼⌄]?$/i.test(node.textContent.replace(/\s+/g,' ').trim());
- for(const [anchor,button] of launchers)if(!deckId()||!anchor.isConnected||!isLabel(anchor)){button.remove();launchers.delete(anchor);}
- if(!deckId())return;
- const labels=[...document.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"],div,span,a,button,strong')].filter(node=>!node.closest('[data-mrd-owned],#mrd-root,#mrd-sidebar')&&isLabel(node));
+ for(const [anchor,button] of launchers)if(!deckId()||!anchor.isConnected||!inScope(anchor)||!isLabel(anchor)){button.remove();launchers.delete(anchor);}
+ if(!deckId()||modern&&!deckView)return;
+ const labels=[...document.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"],div,span,a,button,strong')].filter(node=>inScope(node)&&!node.closest('[data-mrd-owned],#mrd-root,#mrd-sidebar')&&isLabel(node));
  for(const label of labels){
   // Moxfield also uses ordinary dropdown labels instead of semantic headings.
   if(labels.some(other=>other!==label&&label.contains(other)))continue;

@@ -9,6 +9,7 @@ tests/window-fix-profile/
 tests/window-fix-profile2/
 .tmp/
 *.har
+/html sample.htm
 *.log
 
 # Generated packages and local captures
