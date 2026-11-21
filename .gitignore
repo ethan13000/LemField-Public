@@ -16,3 +16,6 @@ tests/window-fix-profile2/
 *.zip
 *.zip.sha256
 downloads/
+
+# Generated browser fixture; recreated by its test runner
+/tests/browser-fixture.html

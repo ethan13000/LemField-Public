@@ -2,13 +2,13 @@
 
 ## Firefox 140+
 
-The Firefox ZIP is an unsigned release candidate. For a temporary installation, extract `LemField-1.1-Firefox.zip`, open `about:debugging#/runtime/this-firefox`, choose **Load Temporary Add-on**, and select the extracted `manifest.json`. Temporary add-ons must be loaded again after restarting Firefox. Permanent installation requires Mozilla signing or an approved store listing; no store approval is claimed.
+Use the [store-upload Firefox ZIP](downloads/store-1.1-alpha2/LemField-1.1-Alpha-2-Firefox.zip) for Mozilla submission. Use the [development Firefox ZIP](downloads/LemField-1.1-Alpha-2-Firefox.zip) for local testing; both are unsigned until Mozilla signing. For a temporary installation, extract `LemField-1.1-Alpha-2-Firefox.zip`, open `about:debugging#/runtime/this-firefox`, choose **Load Temporary Add-on**, and select the extracted `manifest.json`. Temporary add-ons must be loaded again after restarting Firefox. Permanent installation requires Mozilla signing or an approved store listing; no store approval is claimed.
 
 The store package preserves the existing `moxfield-plus@ethan13000` add-on ID. Its visible name is LemField. The development copy retains `moxfield-requirements@local.extension`. Avoid running both copies together. Export requirements settings and print preferences before changing installations; artwork remains local and is not in JSON preference backups.
 
 ## Chromium 120+
 
-Extract `LemField-1.1-Chromium.zip`. Open `chrome://extensions` (or the equivalent page in Edge, Brave or Opera), enable **Developer mode**, choose **Load unpacked**, and select the extracted folder containing `manifest.json`. Keep the same folder path for subsequent updates to retain the unpacked extension identity. Safari is not supported. The ZIP can also be used for Chrome Web Store submission; no upload or approval has been performed.
+Extract the [Chromium ZIP](downloads/store-1.1-alpha2/LemField-1.1-Alpha-2-Chromium.zip). Open `chrome://extensions` (or the equivalent page in Edge, Brave or Opera), enable **Developer mode**, choose **Load unpacked**, and select the extracted folder containing `manifest.json`. Keep the same folder path for subsequent updates to retain the unpacked extension identity. Safari is not supported. The ZIP can also be used for Chrome Web Store submission; no upload or approval has been performed.
 
 ## Updating and using decks
 

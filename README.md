@@ -4,7 +4,7 @@
 
 Store-upload candidates: [Firefox](downloads/store-1.1-alpha2/LemField-1.1-Alpha-2-Firefox.zip) ? [Chromium](downloads/store-1.1-alpha2/LemField-1.1-Alpha-2-Chromium.zip) ? [Reviewer source](downloads/store-1.1-alpha2/LemField-1.1-Alpha-2-source.zip) ? [Checksums](downloads/store-1.1-alpha2/SHA256SUMS.txt). Build with `node scripts/build-release.cjs --alpha2 --store`. Both packages display LemField and version 1.1.0.2. The Firefox store candidate retains the project-recorded ID `moxfield-plus@ethan13000`; confirm that matches the existing AMO listing before upload. No store submission or approval is claimed.
 
-Temporary-install test builds: [Firefox](downloads/LemField-1.1-Alpha-2-Firefox.zip) ? [Chromium](downloads/LemField-1.1-Alpha-2-Chromium.zip). Build with `npm run build:alpha2`; the Firefox test build uses the separate development ID. The original 1.1 downloads below remain available.
+Temporary Firefox test build: [Download](downloads/LemField-1.1-Alpha-2-Firefox.zip) · [Checksum](downloads/SHA256SUMS-1.1-Alpha-2.txt). This uses the separate development add-on ID. The Chromium package and source are shared with the store-upload candidates above.
 
 LemField 1.1 is an independent Moxfield deckbuilding companion for Firefox 140+ and Chromium 120+. It is not affiliated with or endorsed by Moxfield, EDHREC, Scryfall, or Wizards of the Coast.
 
@@ -14,8 +14,6 @@ LemField 1.1 is an independent Moxfield deckbuilding companion for Firefox 140+ 
 - Basic-land quantity controls, deck-list counts and commander names, duplicate cleanup, and reviewed bulk moves/removals.
 - Local card-sheet/PDF export with custom artwork, cut guides and paired double-faced printing.
 - JSON preference transfer and optional browser-account sync for print preferences. Uploaded artwork stays local.
-
-[Download Firefox](downloads/LemField-1.1-Firefox.zip) · [Download Chromium](downloads/LemField-1.1-Chromium.zip) · [Reviewer source](downloads/LemField-1.1-source.zip) · [Checksums](downloads/SHA256SUMS-1.1.txt)
 
 Read [1.1 patch notes](PATCH_NOTES_1.1.md), [installation instructions](INSTALL.md), and [privacy policy](PRIVACY.md). Deck changes require a signed-in account and deck ownership. The extension verifies writes and refreshes its own panels without forcing a page reload; Moxfield's native list may still need the explicit Refresh now action. Check the deck before retrying an uncertain write.
 
